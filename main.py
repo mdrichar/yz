@@ -4,6 +4,7 @@ import operator
 import unittest
 #import jsonpickle
 import msgpack
+import json
 
 none_held = (0,0,0,0,0,0)
 no_row = -1
@@ -160,23 +161,23 @@ def getStateValue(state):
         max_value = -1000
         best_action = None
         for action in legal_actions(state):
-            #print ("    Considering action: ", action)
+            print ("    Considering action: ", action)
             immediate_reward = immediateReward(action,state)
             expected_future_value = 0
             total_prob = 0
             for (next_state, prob) in stateTransitionsFrom(action, state):
                 total_prob += prob
-                #if not next_state in state_values:
-                #    print("Not in there",next_state)
+                if not next_state in state_values:
+                    print("Not in there",next_state)
                 assert next_state in state_values
-                #print("                 ",prob, next_state, "Val: ",state_values[next_state])
+                print("                 ",prob, next_state, "Val: ",state_values[next_state])
                 expected_future_value += prob * state_values[next_state]
                 total_value = immediate_reward + expected_future_value
                 if total_value > max_value:
                     max_value = total_value
                     best_action = action
-            #print("Action %s TV: %2f" % (action, total_value))
-        #print("In ",state," value is ",max_value," by doing ",best_action)
+            print("Action %s TV: %2f" % (action, total_value))
+        print("In ",state," value is ",max_value," by doing ",best_action)
         state_values[state] = max_value
         return (max_value, best_action)
         #return(1,None)
@@ -231,11 +232,9 @@ def computeOneRowNoRoll():
         for outcome in roll_outcomes[all_dice]:
             state = State(outcome,oneRow,0)
             (value, bestAction) = getStateValue(state)
-#computeOneRowNoRoll()
-#for k, v in state_values.items():
-#    if v > 0 and k.remaining_rows[0] == 1:
-#        print("Computed",k,v)
-print("COMPUTING ONE ROLL LEFT")
+
+
+#print("COMPUTING ONE ROLL LEFT")
 def computeOneRowOneRoll():
     noRows = getNoRows()
     for row in range(len(noRows)):
@@ -247,7 +246,6 @@ def computeOneRowOneRoll():
              print("State: ",state, "Value: ", value, "Action: ",bestAction)
              
 
-#computeOneRowOneRoll()
 # jsonstr = jsonpickle.encode(state_values, unpicklable=True, keys=True)
 # with open("sv0R.txt",'w') as ofile:
 #     ofile.write(jsonstr)
@@ -276,21 +274,39 @@ def computeOneRow():
         
             
 
-
+# Compute probabilities of all possible outcomes when rolling 0, 1, 2, ..., len(roll_outcomes) dice
 
 roll_outcomes = [{} for i in range(6)]
 #roll_outcomes.append({})
+
+# If I roll 0 dice, the probability of rolling 0 1s, 0 2s, 0 3s, 0 4s, 0 5s, and 0 6s is 1
 roll_outcomes[0][(0,0,0,0,0,0)] = 1
 
 base = [(1,0,0,0,0,0),(0,1,0,0,0,0),(0,0,1,0,0,0),(0,0,0,1,0,0),(0,0,0,0,1,0),(0,0,0,0,0,1)]
 
+# First enumerate all the outcomes of rolling one die. (1,0,0,0,0,0) means rolling a 1, (0,0,1,0,0,0) means rolling a three.
+# There are six outcomes from rolling one die. Now, when I go to figure out all the outcomes of rolling two dice, I can iterate
+# over all the one die-outcomes, and for each of those, I can enumerate the six possibilities that result from adding a 1 or a 2
+# ... or 6 to that one-die outcome. 
+
+# Note that there could be some duplicates here. If my one-die outcome of rolling a 1 (1,0,0,0,0,0) and then I add the second die is a 3,
+# that would be (1,0,1,0,0,0). But when I consider the one-die outcome of rolling a 3 (0,0,1,0,0,0) and I add the second die is a 1, that
+# is also (1,0,1,0,0,0). Adding up the number of duplicates and dividing by the total (for each die count) gives the probability of that 
+# outcome. So for two dice, 6*6 caeses will be enumerated. The probability of rolling a pair of ones (2,0,0,0,0,0) is 1/36, but the 
+# probability of rolling a one and a three is 2/36=1/18, because the (1,0,1,0,0,0) will get generated twice.
+
 for i in range(1,len(roll_outcomes)):
+    #print("i:",i)
     for j in range(6):
         #zlist = [0] * 6
         #zlist[j] = 1
-
+        #print(f"(i,j):({i},{j})")
         for key,val in roll_outcomes[i-1].items():
+            #print("Key: ",key)
+            #print("Base[j]: ", base[j])
+            #print("Zip(key,base[j]): ",zip(key,base[j]))
             t = tuple(map(sum,zip(key,base[j])))
+            #print("t",t)
             if t in roll_outcomes[i]:
                 roll_outcomes[i][t] += val
             else:
@@ -301,31 +317,116 @@ for i in range(all_dice+1):
     for key in roll_outcomes[i]:
         roll_outcomes[i][key] = roll_outcomes[i][key] / total_outcomes
 
-
-
+#computeOneRowOneRoll()
 state_values = {}
-finalState = State(none_held,tuple([0]*13),max_rolls_allowed)
-anotherState =State(none_held,tuple([0]*13),max_rolls_allowed) 
+finalState = State(none_held,tuple([0]*13),3)
+semifinalState = State((1,1,1,1,1,0),tuple([1]*13),2)
 state_values[finalState] = 0
-print(finalState in state_values)
-print(anotherState in state_values)
+state_values[semifinalState] = 4
+
+#computeOneRowNoRoll()
+for k, v in state_values.items():
+   if v > 0 and k.remaining_rows[1] == 1:
+        print("Computed",k,v)
+print(len(state_values))
+print(len(roll_outcomes))
+print(len(roll_outcomes[5]))
 
 
-num_rows =13
-turns_left = [ [] for _ in range(num_rows+1)] 
-for i in range(2**num_rows):
-    t = tuple(map(int,list("{0:013b}".format(i))))
-    num_used = sum(t)
-    turns_left[num_used].append(t)
+#print(roll_outcomes)
+
+# Serialization with custom encoding
+with open('data.msgpack', 'wb') as file:
+    for item in roll_outcomes:
+        file.write(msgpack.packb(item))
+        
+# Deserialization with custom decoding
+with open('data.msgpack', 'rb') as file:
+    loaded_data = [item for item in msgpack.Unpacker(file, strict_map_key=False, use_list=False)]
+    # packed_data = file.read()
+    # loaded_data = msgpack.unpackb(packed_data, object_hook=decode_dict, raw=False, strict_map_key=False, use_list=False)
+
+
+with open('states1.msgpack', 'wb') as file:
+    for k, v in state_values.items():
+        file.write(msgpack.packb((k.dice,k.remaining_rows,k.rolls_left,v)))
+        
+with open('states1.msgpack', 'rb') as file:
+    #reloaded_states = { State(item[0], item[1], item[2]) : item[3] for item in msgpack.Unpacker(file, strict_map_key=False, use_list=False) }
+    for item in msgpack.Unpacker(file, strict_map_key=False, use_list=False):
+        s = State(item[0],item[1],item[2])
+        print(s)
+
+# for k, v in reloaded_states:
+#     print(k,v)      
+
+# print(loaded_data)
+# Define a custom serialization function for State objects
+# def state_encoder(obj):
+#     print("State_encoder: ",type(obj))
+#     if isinstance(obj, State):
+#         return (obj.dice, obj.remaining_rows, obj.rolls_left)
+#     raise TypeError("Object of type 'State' is not serializable")
+
+# with open('states1.msgpack', 'wb') as file:
+#     file.write(msgpack.packb(state_values, default=state_encoder))
+# # Serialize the dictionary using msgpack with the custom encoder
+
+# # Define a custom decoding function for State objects
+# def state_decoder(obj):
+#     if isinstance(obj, tuple) and len(obj) == 3:
+#         print("Decoding State")
+#         return State(obj[0], obj[1], obj[2])
+#     else:
+#         print("Fall back",obj)
+#         print(type(obj))
+#         print(len(obj))
     
-sizes = [len(x) for x in turns_left]
-print(sizes)
-print(sum(sizes))
+#     return obj
+
+# # Deserialize the binary data using msgpack with the custom decoder
+# with open('states1.msgpack', 'rb') as f:
+#     serialized_data = f.read()
+#     loaded_values = msgpack.unpackb(serialized_data, object_hook=state_decoder, strict_map_key=False, use_list = False)
 
 
-#Print of the list of states in order that they should be computed
+# Now 'your_dictionary' contains the deserialized data with State objects as keys and integers as values
+# for k, v in loaded_values.items():
+#    if v > 0 and k.remaining_rows[1] == 1:
+#         print("Computed",k,v)
+# print(len(loaded_values))
+# print(loaded_values)
+#print(len(roll_outcomes))
+#print(len(roll_outcomes[5]))
 
-# for turns_remaining in range(2):
-#     for rolls_remaining in range(3):
-#         for subset_remaining in turns_left[turns_] 
-             
+
+
+
+# Define a custom encoding function for the dictionary
+# def dict_encoder(obj):
+#     print("Encoding obj",type(obj))
+
+#     if isinstance(obj, dict):
+#         return {"state_dict": [(key.__dict__, value) for key, value in obj.items()]}
+
+# # Define a custom decoding function for the dictionary
+# def dict_decoder(obj):
+#     print(type(obj))
+#     if "state_dict" in obj:
+#         return {
+#             State(*key_values): value
+#             for key_values, value in obj["state_dict"]
+#         }
+#     return obj
+
+# Create a dictionary with State objects as keys and integers as values
+
+
+# Serialize the dictionary using msgpack with the custom encoder
+#serialized_data = msgpack.packb(state_values, default=dict_encoder)
+
+# Deserialize the dictionary using msgpack with the custom decoder
+#deserialized_dict = msgpack.unpackb(serialized_data, object_hook=dict_decoder, strict_map_key=False)
+
+# Now 'deserialized_dict' contains the deserialized dictionary with State objects as keys and integers as values
+#print(deserialized_dict)
