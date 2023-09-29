@@ -100,7 +100,30 @@ def computeAllStateValues(known_values):
             s = yahtzee_state.State(yahtzee_state.none_held,turnsUsedTuple,3)
             print(s)
             state_evaluator.StateEvaluator.computeStateValue(s, known_values)
-                      
+
+
+def parallelizeComputeStateValues(knownValues, workerCnt):
+    for turnsRemaining in range(1,2):
+        workerAssignments = [[] for _ in range(workerCnt)]
+        itemCnt = 0
+        for turnsUsedTuple, _ in yzi.allBinaryPermutationsFixedOnesCnt(yahtzee_state.max_turns,turnsRemaining):
+            workerAssignments[itemCnt % workerCnt].append(turnsUsedTuple)
+        with concurrent.futures.ProcessPoolExecutor() as executor:
+            results = list(executor.map(computeSubsetStateValues,[(assignment,knownValues) for assignment in workerAssignments]))
+        for result in results:
+            knownValues.update(result)    
+ 
+    
+def computeSubsetStateValues(turnsUsedTuples, knownValues):
+    for turnsUsedTuple in turnsUsedTuples:
+        for rollsRemaining in (0,1,2):
+            for possibleRoll in roll_outcomes[5]:
+                s = yahtzee_state.State(possibleRoll,turnsUsedTuple,rollsRemaining)
+                state_evaluator.StateEvaluator.computeStateValue(s, knownValues)
+        s = yahtzee_state.State(yahtzee_state.none_held,turnsUsedTuple,3)
+        print(s)
+        state_evaluator.StateEvaluator.computeStateValue(s, knownValues)                     
+    return knownValues
 
 # jsonstr = jsonpickle.encode(state_values, unpicklable=True, keys=True)
 # with open("sv0R.txt",'w') as ofile:
