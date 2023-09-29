@@ -26,7 +26,7 @@ class StateEvaluator:
                     print(next_state)
                 assert next_state in known_values
                 #print("                 ",prob, next_state, "Val: ",state_values[next_state])
-                expected_future_value += prob * known_values[next_state](0)
+                expected_future_value += prob * known_values[next_state][0]
                 total_value = immediate_reward + expected_future_value
                 if total_value > max_value:
                     max_value = total_value

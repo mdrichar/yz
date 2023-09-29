@@ -181,6 +181,11 @@ def readStateValues(filepath):
             reloaded_states[s] = item[3]
     return reloaded_states
 
+def printStateValues(state_values):
+    for k, v in state_values.items():
+        if k.openSlotCount() == 1 and k.rolls_left <= 3:
+            print(k,v)
+
 # print("Read states from file")
 # reloaded_states = readStateValues('states_values.msgpack')
 # state_values = reloaded_states
@@ -194,6 +199,7 @@ def readStateValues(filepath):
 #     #print(k)
 
 computeAllStateValues(state_values)
+printStateValues(state_values)
         
 # print (len(reloaded_states))
 # for k, v in reloaded_states.items():

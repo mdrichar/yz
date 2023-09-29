@@ -89,7 +89,4 @@ def getRollOutcomes():
 
     return roll_outcomes
 
-# def getPossibleScoresTopLevel():
-#     catalog = {}
-#     for allBinaryPermutationsFixedOnesCnt(6)
-# Example usage:
+
