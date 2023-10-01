@@ -11,6 +11,7 @@ import yahtzee_state
 import state_evaluator 
 import cProfile, pstats
 from yahtzee_state_manager import StateManager
+from game_manager import GameManager
 
 roll_outcomes = yzi.getRollOutcomes()
 def computeAllStateValues(known_values):
@@ -114,19 +115,21 @@ def printStateValues(state_values):
 #computeAllStateValues(state_values)
 profiler = cProfile.Profile()
 profiler.enable()
-parallelizeComputeStateValues(state_values,16)
-profiler.disable()
-stats = pstats.Stats(profiler).sort_stats('ncalls')
-#stats.print_stats()
-print(len(state_values))
-sm = StateManager()
-sm.categorize(state_values)
-StateManager.dumpStateValues(state_values,'states.pickle')
-#sm.write("text","output/states",1,3)
-sm.writeAll("text","output/states")
-sm.writeAll("pickle","pickled/states")
-print(len(sm.get(1,3)))
-#printStateValues(state_values)
+#parallelizeComputeStateValues(state_values,16)
+# profiler.disable()
+# stats = pstats.Stats(profiler).sort_stats('ncalls')
+# #stats.print_stats()
+# print(len(state_values))
+# sm = StateManager()
+# sm.categorize(state_values)
+# StateManager.dumpStateValues(state_values,'states.pickle')
+# #sm.write("text","output/states",1,3)
+# sm.writeAll("text","output/states")
+# sm.writeAll("pickle","pickled/states")
+# print(len(sm.get(1,3)))
+# #printStateValues(state_values)
+gm = GameManager()
+gm.playRandom()
         
 # print (len(reloaded_states))
 # for k, v in reloaded_states.items():

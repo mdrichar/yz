@@ -2,6 +2,7 @@ import itertools
 from functools import reduce
 import operator
 import yahtzee_iterators as yzi
+import random
 
 none_held = (0,0,0,0,0,0)
 no_row = -1
@@ -12,6 +13,14 @@ max_turns=13
 #    print(i)
 roll_outcomes = yzi.getRollOutcomes()
 slot_name = ["Ones","Twos","Threes","Fours","Fives","Sixes","Three of a kind","Four of a kind","Full House","Small Straight","Large Straight","Yahtzee","Chance"]
+
+
+def randomRoll(diceCnt):
+    result = list(none_held)
+    for _ in range(diceCnt):
+        randomFace = random.randrange(0,6)
+        result[randomFace] += 1
+    return tuple(result)
 
 class Action:
     def __init__(self,held,rerolled,chosen_row):
@@ -75,6 +84,23 @@ class State:
             assert self.remaining_rows[action.chosen_row] == 1
             still_remaining = State.get_leftovers_after_playing(self.remaining_rows,action.chosen_row)
             yield (State(none_held, still_remaining, max_rolls_allowed),1)
+            
+    def apply(self, action):
+        if self.rolls_left > 0:
+            assert action.chosen_row == no_row
+            reroll_outcome = randomRoll(action.rerolled)
+            total_outcome = State.total_dice(action.held, reroll_outcome)
+            return (State(total_outcome,self.remaining_rows, self.rolls_left-1), 0)
+        else:
+            # If there are no rerolls left, the action must be to score a row
+            assert action.chosen_row != no_row
+            # Make sure the row selected for scoring is available
+            assert self.remaining_rows[action.chosen_row] == 1
+            still_remaining = State.get_leftovers_after_playing(self.remaining_rows,action.chosen_row)
+            immediateReward = self.immediateReward(action)
+            return (State(none_held, still_remaining, max_rolls_allowed),immediateReward)
+        
+            
 
     def immediateReward(self, action):
         if action.chosen_row == no_row:
