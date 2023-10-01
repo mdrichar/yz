@@ -42,6 +42,8 @@ class State:
         return hash((self.dice,self.remaining_rows,self.rolls_left))
     def openSlotCount(self):
         return sum(self.remaining_rows)
+    def rollsLeft(self):
+        return self.rolls_left
 
 
     def legal_actions(self):
@@ -182,3 +184,12 @@ class State:
     def get_leftovers_after_playing(remaining_rows,used):
         temp_list = list(remaining_rows)
         return tuple(temp_list[:used]+[temp_list[used]-1]+temp_list[used+1:])
+    
+def finalState():
+    finalState = State(none_held,tuple([0]*max_turns),3)
+    return finalState
+    
+def startState():
+    startState = State(none_held,tuple([1]*max_turns),3)
+    return startState
+    
