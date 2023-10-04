@@ -15,15 +15,21 @@ from game_manager import GameManager
 
 roll_outcomes = yzi.getRollOutcomes()
 def computeAllStateValues(known_values):
-    for turnsRemaining in range(1,3):
+    for turnsRemaining in range(0,2):
         for turnsUsedTuple, _ in yzi.allBinaryPermutationsFixedOnesCnt(yahtzee_state.max_turns,turnsRemaining):
-            for rollsRemaining in (0,1,2):
-                for possibleRoll in roll_outcomes[5]:
-                    s = yahtzee_state.State(possibleRoll,turnsUsedTuple,rollsRemaining)
+            zeroedYahtzeeOptions = (True, False) if turnsUsedTuple[yahtzee_state.yahtzeeSlot] == 0 else (True,)
+            for zeroedYahtzeeOption in zeroedYahtzeeOptions:
+                for ptsNeededForBonus, isPossible in enumerate(yzi.getBonusPtsPossibilities(yahtzee_state.State.upperOnly(turnsUsedTuple))):
+                    if not isPossible:
+                        continue
+                    if sum(turnsUsedTuple) > 0:
+                        for rollsRemaining in (0,1,2):
+                            for possibleRoll in roll_outcomes[5]:
+                                s = yahtzee_state.State(possibleRoll,turnsUsedTuple,rollsRemaining, ptsNeededForBonus, zeroedYahtzeeOption)
+                                state_evaluator.StateEvaluator.computeStateValue(s, known_values)
+                    s = yahtzee_state.State(yahtzee_state.none_held,turnsUsedTuple,3, ptsNeededForBonus, zeroedYahtzeeOption)
+                    print(s)
                     state_evaluator.StateEvaluator.computeStateValue(s, known_values)
-            s = yahtzee_state.State(yahtzee_state.none_held,turnsUsedTuple,3)
-            print(s)
-            state_evaluator.StateEvaluator.computeStateValue(s, known_values)
 
 
 def parallelizeComputeStateValues(knownValues, workerCnt):
@@ -58,8 +64,8 @@ def computeSubsetStateValuesWrapper(args):
 
 #computeOneRowOneRoll()
 state_values = {}
-finalState = yahtzee_state.finalState()
-state_values[finalState] = (0, None)
+# finalState = yahtzee_state.finalState()
+# state_values[finalState] = (0, None)
 # semifinalState = State((1,1,1,1,1,0),tuple([1]*13),2)
 # state_values[semifinalState] = 4
 
@@ -112,7 +118,7 @@ def printStateValues(state_values):
             print(f"{k}={v[0]:.2f},{v[1]}")
 
 
-#computeAllStateValues(state_values)
+computeAllStateValues(state_values)
 profiler = cProfile.Profile()
 profiler.enable()
 #parallelizeComputeStateValues(state_values,16)
@@ -128,8 +134,13 @@ profiler.enable()
 # sm.writeAll("pickle","pickled/states")
 # print(len(sm.get(1,3)))
 # #printStateValues(state_values)
+
+
+#######################################################
+# Play a game
 gm = GameManager()
 gm.playRandom()
+#######################################################
         
 # print (len(reloaded_states))
 # for k, v in reloaded_states.items():

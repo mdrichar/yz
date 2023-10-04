@@ -23,6 +23,6 @@ class GameManager:
             if selectedAction.chosen_row != yahtzee_state.no_row:
                 print(f"Score: {points} {self.pointsScored}")
             self.current = nextState
-            if self.current == yahtzee_state.finalState():
+            if self.current.isFinalState():
                 break
     

@@ -26,22 +26,35 @@ def allBinaryPermutations(length):
 # For each possible combination of upper section scores filled in, determine the total possible combinations of total points
 # scored for the upper section (so far). Subtract this from 63 to determine the number of points that could be remaining to 
 # achieve the bonus
-def getBonusPtsPossibilities():
+def computeBonusPtsPossibilities():
     possibilities = {}
     possibleScoresBySlot = [(0,1,2,3,4,5),(0,2,4,6,8,10),(0,3,6,9,12,15),(0,4,8,12,16,20),(0,5,10,15,20,25),(0,6,12,18,24,30)]
-    for item in allBinaryPermutations(5):
+    for item in allBinaryPermutations(6): # number of slots in upper section
         prodPoss = [(0,)]
         for i, v in enumerate(item):
             if v == 0:
                 prodPoss.append(possibleScoresBySlot[i])
         #print(item,prodPoss)
-        possPtsStillNeededForBonus = [0]*64
-        for possibleScoreCombination in itertools.product(*prodPoss):
-            possPts = sum(possibleScoreCombination)
-            possPtsToBonus = max(63-possPts,0)
-            possPtsStillNeededForBonus[possPtsToBonus] = 1
+        possPtsStillNeededForBonus = [0] * 64
+        if sum(item) == 0: # If there are no open slots up top, there's no way to secure the bonus in the future (you have it or you won't ever)
+            possPtsStillNeededForBonus[0] = 1
+        else:
+            for possibleScoreCombination in itertools.product(*prodPoss):
+                possPts = sum(possibleScoreCombination)
+                possPtsToBonus = max(63-possPts,0)
+                possPtsStillNeededForBonus[possPtsToBonus] = 1
         possibilities[item] = possPtsStillNeededForBonus
-    return possibilities             
+    return possibilities    
+
+possibilities = computeBonusPtsPossibilities()
+for k, v in possibilities.items():
+    print(k)
+print("END")
+ 
+def getBonusPtsPossibilities(t):
+    print(t,len(possibilities))
+    assert t in possibilities
+    return possibilities[t]
         
 
 def getRollOutcomes(): 
