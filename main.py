@@ -14,26 +14,37 @@ from yahtzee_state_manager import StateManager
 from game_manager import GameManager
 
 roll_outcomes = yzi.getRollOutcomes()
-def computeAllStateValues(known_values):
+def computeAllStateValues(stateManager):
     for turnsRemaining in range(0,2):
+        known_values = stateManager.get(turnsRemaining-1,3) # The only "known values" for this iteration are those computed on the previous iteration
         for turnsUsedTuple, _ in yzi.allBinaryPermutationsFixedOnesCnt(yahtzee_state.max_turns,turnsRemaining):
-            zeroedYahtzeeOptions = (True, False) if turnsUsedTuple[yahtzee_state.yahtzeeSlot] == 0 else (True,)
-            for zeroedYahtzeeOption in zeroedYahtzeeOptions:
-                for ptsNeededForBonus, isPossible in enumerate(yzi.getBonusPtsPossibilities(yahtzee_state.State.upperOnly(turnsUsedTuple))):
-                    if not isPossible:
-                        continue
-                    if sum(turnsUsedTuple) > 0:
-                        for rollsRemaining in (0,1,2):
-                            for possibleRoll in roll_outcomes[5]:
-                                s = yahtzee_state.State(possibleRoll,turnsUsedTuple,rollsRemaining, ptsNeededForBonus, zeroedYahtzeeOption)
-                                state_evaluator.StateEvaluator.computeStateValue(s, known_values)
-                    s = yahtzee_state.State(yahtzee_state.none_held,turnsUsedTuple,3, ptsNeededForBonus, zeroedYahtzeeOption)
-                    print(s)
-                    state_evaluator.StateEvaluator.computeStateValue(s, known_values)
+            updated_values = computeAllStateValuesForUsedSlots(known_values, turnsUsedTuple)
+        stateManager.categorize(updated_values)
+        stateManager.writeAll("text","output/states")
+
+def computeAllStateValuesForUsedSlots(known_values, turnsUsedTuple):
+    zeroedYahtzeeOptions = (True, False) if turnsUsedTuple[yahtzee_state.yahtzeeSlot] == 0 else (True,)
+    for zeroedYahtzeeOption in zeroedYahtzeeOptions:
+        for ptsNeededForBonus, isPossible in enumerate(yzi.getBonusPtsPossibilities(yahtzee_state.State.upperOnly(turnsUsedTuple))):
+            if not isPossible:
+                continue
+            if sum(turnsUsedTuple) > 0:
+                for rollsRemaining in (0,1,2):
+                    for possibleRoll in roll_outcomes[5]:
+                        s = yahtzee_state.State(possibleRoll,turnsUsedTuple,rollsRemaining, ptsNeededForBonus, zeroedYahtzeeOption)
+                        state_evaluator.StateEvaluator.computeStateValue(s, known_values)
+            s = yahtzee_state.State(yahtzee_state.none_held,turnsUsedTuple,3, ptsNeededForBonus, zeroedYahtzeeOption)
+            print(s)
+            state_evaluator.StateEvaluator.computeStateValue(s, known_values)
+    return known_values
 
 
-def parallelizeComputeStateValues(knownValues, workerCnt):
-    for turnsRemaining in range(1,2):
+def parallelizeComputeStateValues(stateManager, workerCnt):
+    for turnsRemaining in range(4,6):
+        print("TurnsRemaining",turnsRemaining)
+        #knownValues = stateManager.get(turnsRemaining-1,3) # The only "known values" for this iteration are those computed on the previous iteration
+        knownValues = stateManager.read("pickle","parallelpickled/states",turnsRemaining-1,3) # Only need he starting points for next fewer slots remaining
+        assert knownValues != None
         workerAssignments = [[] for _ in range(workerCnt)]
         itemCnt = 0
         for turnsUsedTuple, _ in yzi.allBinaryPermutationsFixedOnesCnt(yahtzee_state.max_turns,turnsRemaining):
@@ -44,18 +55,27 @@ def parallelizeComputeStateValues(knownValues, workerCnt):
             #partial will unpack the tuple of arguments the gets passed in so that computeSubsetStateValues ses two distinct args
             results = list(executor.map(computeSubsetStateValuesWrapper,args))
         for result in results:
-            knownValues.update(result)    
+            stateManager.categorize(result)
+        stateManager.writeAll("text","parallel/states")
+        for rollsRemaining in (0,1,2,3):
+            stateManager.write("pickle","parallelpickled/states",turnsRemaining,rollsRemaining)
  
     
+# def computeSubsetStateValues(turnsUsedTuples, knownValues):
+#     for turnsUsedTuple in turnsUsedTuples:
+#         for rollsRemaining in (0,1,2):
+#             for possibleRoll in roll_outcomes[5]:
+#                 s = yahtzee_state.State(possibleRoll,turnsUsedTuple,rollsRemaining)
+#                 state_evaluator.StateEvaluator.computeStateValue(s, knownValues)
+#         s = yahtzee_state.State(yahtzee_state.none_held,turnsUsedTuple,3)
+#         #print(s)
+#         state_evaluator.StateEvaluator.computeStateValue(s, knownValues)                     
+#     return knownValues
+
 def computeSubsetStateValues(turnsUsedTuples, knownValues):
+    print("Kicking off computeSubset")
     for turnsUsedTuple in turnsUsedTuples:
-        for rollsRemaining in (0,1,2):
-            for possibleRoll in roll_outcomes[5]:
-                s = yahtzee_state.State(possibleRoll,turnsUsedTuple,rollsRemaining)
-                state_evaluator.StateEvaluator.computeStateValue(s, knownValues)
-        s = yahtzee_state.State(yahtzee_state.none_held,turnsUsedTuple,3)
-        #print(s)
-        state_evaluator.StateEvaluator.computeStateValue(s, knownValues)                     
+        knownValues = computeAllStateValuesForUsedSlots(knownValues, turnsUsedTuple) # Last value returned should include all the previous updates
     return knownValues
 
 def computeSubsetStateValuesWrapper(args):
@@ -63,23 +83,6 @@ def computeSubsetStateValuesWrapper(args):
 
 
 #computeOneRowOneRoll()
-state_values = {}
-# finalState = yahtzee_state.finalState()
-# state_values[finalState] = (0, None)
-# semifinalState = State((1,1,1,1,1,0),tuple([1]*13),2)
-# state_values[semifinalState] = 4
-
-#computeOneRowNoRoll()
-#computeOneRow()
-for k, v in state_values.items():
-   if v[0] > 0 and k.remaining_rows[1] == 1:
-        print("Computed",k,v)
-print(len(state_values))
-print(len(roll_outcomes))
-print(len(roll_outcomes[5]))
-
-
-#print(roll_outcomes)
 
 #Serialization of rolled_outcomes
 # Serialization with custom encoding
@@ -117,34 +120,36 @@ def printStateValues(state_values):
         if k.openSlotCount() == 1 and k.rolls_left <= 3:
             print(f"{k}={v[0]:.2f},{v[1]}")
 
+if __name__ == '__main__':
+    sm = StateManager()
+    #computeAllStateValues(sm)
+    profiler = cProfile.Profile()
+    profiler.enable()
+    parallelizeComputeStateValues(sm,14)
+    sm.writeAll("pickle","parallelpickled/states")
+    # profiler.disable()
+    # stats = pstats.Stats(profiler).sort_stats('ncalls')
+    # #stats.print_stats()
+    # print(len(state_values))
+    # sm.categorize(state_values)
+    # StateManager.dumpStateValues(state_values,'states.pickle')
+    # #sm.write("text","output/states",1,3)
+    # sm.writeAll("text","output/states")
+    # sm.writeAll("pickle","pickled/states")
+    # print(len(sm.get(1,3)))
+    # #printStateValues(state_values)
 
-computeAllStateValues(state_values)
-profiler = cProfile.Profile()
-profiler.enable()
-#parallelizeComputeStateValues(state_values,16)
-# profiler.disable()
-# stats = pstats.Stats(profiler).sort_stats('ncalls')
-# #stats.print_stats()
-# print(len(state_values))
-# sm = StateManager()
-# sm.categorize(state_values)
-# StateManager.dumpStateValues(state_values,'states.pickle')
-# #sm.write("text","output/states",1,3)
-# sm.writeAll("text","output/states")
-# sm.writeAll("pickle","pickled/states")
-# print(len(sm.get(1,3)))
-# #printStateValues(state_values)
 
+    #######################################################
+    # Play a game
+    gm = GameManager()
+    gm.playRandom()
+    #######################################################
+            
+    # print (len(reloaded_states))
+    # for k, v in reloaded_states.items():
+    #     if k.openSlotCount() == 1 and k.rolls_left == 3:
+    #         print(k,v)      
 
-#######################################################
-# Play a game
-gm = GameManager()
-gm.playRandom()
-#######################################################
-        
-# print (len(reloaded_states))
-# for k, v in reloaded_states.items():
-#     if k.openSlotCount() == 1 and k.rolls_left == 3:
-#         print(k,v)      
-
-# writeStateValues(state_values, 'states_values_refactored.msgpack')
+    # writeStateValues(state_values, 'states_values_refactored.msgpack')
+    

@@ -10,6 +10,7 @@ class StateEvaluator:
     @staticmethod    
     def computeStateValue(state, known_values):
         if state.openSlotCount() == 0:
+            print("Base case: ", state)
             known_values[state] = (0, None)
         else:
             max_value = -1000

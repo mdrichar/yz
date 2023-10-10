@@ -52,7 +52,7 @@ class State:
         self.pts_needed_for_bonus = pts_needed_for_bonus
         self.zeroed_yahtzee = zeroed_yahtzee
     def __str__(self):
-        return "     Dice " + str(self.dice) + str(self.remaining_rows) + str(self.rolls_left) + " PLB" + str(self.pts_needed_for_bonus) + " YB" + str(self.zeroed_yahtzee)
+        return "     Dice " + str(self.dice) + str(self.remaining_rows) + str(self.rolls_left) + " PLB" + str(self.pts_needed_for_bonus) + " ZY" + str(self.zeroed_yahtzee)
     def __eq__(self,other):
         return (self.dice == other.dice and self.remaining_rows == other.remaining_rows and self.rolls_left == other.rolls_left 
                 and self.pts_needed_for_bonus == other.pts_needed_for_bonus and self.zeroed_yahtzee == other.zeroed_yahtzee)
