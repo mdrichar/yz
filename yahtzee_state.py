@@ -3,15 +3,17 @@ from functools import reduce
 import operator
 import yahtzee_iterators as yzi
 import random
-
+import yahtzee_action
+from abc import ABC
 none_held = (0,0,0,0,0,0)
-no_row = -1
+no_row = None
 all_dice = 5
 max_rolls_allowed = 3
 max_turns=13
 bonusThreshold = 63
 bonusAmount = 35
-yahtzeeSlot = 11
+actionTbl = yahtzee_action.seedLegalActionTable()
+
 #for i in itertools.product(range(3),range(3)):
 #    print(i)
 roll_outcomes = yzi.getRollOutcomes()
@@ -25,23 +27,8 @@ def randomRoll(diceCnt):
         result[randomFace] += 1
     return tuple(result)
 
-class Action:
-    def __init__(self,held,rerolled,chosen_row):
-        #print("Action: ", held,"Rerolled:",rerolled)
-        self.held = held
-        self.rerolled = rerolled
-        self.chosen_row = chosen_row
-    def __str__(self):
-        if self.chosen_row >= 0:
-            return "Score for " + slot_name[self.chosen_row]
-        elif self.rerolled == all_dice:
-            return "Roll All"
-        else:
-            return "Keep " + str(self.held) + " Reroll " + str(self.rerolled)
-    def __repr__(self):
-        return self.__str__()
-    def isScoringYahtzee(self):
-        return self.chosen_row == yahtzeeSlot
+
+
 
 class State:
     def __init__(self,dice,remaining_rows, rolls_left, pts_needed_for_bonus, zeroed_yahtzee):
@@ -76,36 +63,39 @@ class State:
 
     def legal_actions(self):
         if self.rolls_left == 3:
-            yield Action(none_held,all_dice,no_row)
+            yield yahtzee_action.makeAction(none_held,all_dice,no_row)
         elif self.rolls_left == 0: # Can't reroll, must choose a row to apply score
             for r in range(len(self.remaining_rows)):
                 if self.remaining_rows[r] > 0:
-                    yield Action(none_held,0,r)
+                    yield yahtzee_action.makeAction(none_held,0,r)
         else: # 1 or 2 rerolls left
             dice = self.dice
-            for action in itertools.product(
-            range(dice[0] + 1), range(dice[1] + 1), range(dice[2] + 1),range(dice[3] + 1),
-            range(dice[4] + 1), range(dice[5] + 1)):
-                yield Action(action,5-sum(action),no_row)
+            actions = actionTbl[dice]
+            for action in actions:
+                yield action
+            # for action in itertools.product(
+            # range(dice[0] + 1), range(dice[1] + 1), range(dice[2] + 1),range(dice[3] + 1),
+            # range(dice[4] + 1), range(dice[5] + 1)):
+            #     yield yahtzee_action.makeAction(action,5-sum(action),no_row)
 
 
 
     def stateTransitionsFrom(self, action):
         if self.rolls_left > 0:
-            assert action.chosen_row == no_row
-            for reroll_outcome, prob in roll_outcomes[action.rerolled].items():
-                total_outcome = State.total_dice(action.held, reroll_outcome)
+            assert action.getChosenRow() == no_row
+            for reroll_outcome, prob in roll_outcomes[action.getRerolled()].items():
+                total_outcome = State.total_dice(action.getHeld(), reroll_outcome)
                 yield (State(total_outcome,self.remaining_rows, self.rolls_left-1, self.ptsNeededForBonus(), self.zeroedYahtzee()), prob)
         else:
             # If there are no rerolls left, the action must be to score a row
-            assert action.chosen_row != no_row
+            assert action.getChosenRow() != no_row
             # Make sure the row selected for scoring is available
-            assert self.remaining_rows[action.chosen_row] == 1
-            still_remaining = State.get_leftovers_after_playing(self.remaining_rows,action.chosen_row)
+            assert self.remaining_rows[action.getChosenRow()] == 1
+            still_remaining = State.get_leftovers_after_playing(self.remaining_rows,action.getChosenRow())
             basePoints, upperBonus, yahtzeeBonus = self.immediateReward(action)
             ptsStillNeededForBonus = 0
             if upperBonus == 0 and sum(still_remaining[0:6]) > 0:
-                if State.isUpperSection(action.chosen_row):
+                if State.isUpperSection(action.getChosenRow()):
                     ptsStillNeededForBonus = max(0,self.ptsNeededForBonus() - basePoints)
                 else:
                     ptsStillNeededForBonus = self.ptsNeededForBonus()
@@ -115,20 +105,20 @@ class State:
             
     def apply(self, action):
         if self.rolls_left > 0:
-            assert action.chosen_row == no_row
-            reroll_outcome = randomRoll(action.rerolled)
-            total_outcome = State.total_dice(action.held, reroll_outcome)
+            assert action.getChosenRow() == no_row
+            reroll_outcome = randomRoll(action.getRerolled())
+            total_outcome = State.total_dice(action.getHeld(), reroll_outcome)
             return (State(total_outcome,self.remaining_rows, self.rolls_left-1, self.ptsNeededForBonus(), self.zeroedYahtzee()), 0)
         else:
             # If there are no rerolls left, the action must be to score a row
-            assert action.chosen_row != no_row
+            assert action.getChosenRow() != no_row
             # Make sure the row selected for scoring is available
-            assert self.remaining_rows[action.chosen_row] == 1
-            still_remaining = State.get_leftovers_after_playing(self.remaining_rows,action.chosen_row)
+            assert self.remaining_rows[action.getChosenRow()] == 1
+            still_remaining = State.get_leftovers_after_playing(self.remaining_rows,action.getChosenRow())
             basePoints, upperBonus, yahtzeeBonus = self.immediateReward(action)
             ptsStillNeededForBonus = 0
             if upperBonus == 0 and sum(still_remaining[0:6]) > 0:
-                if State.isUpperSection(action.chosen_row):
+                if State.isUpperSection(action.getChosenRow()):
                     ptsStillNeededForBonus = max(0,self.ptsNeededForBonus() - basePoints)
                 else:
                     ptsStillNeededForBonus = self.ptsNeededForBonus()
@@ -138,31 +128,32 @@ class State:
             
 
     def immediateReward(self, action):
-        if action.chosen_row == no_row:
+        if action.getChosenRow() == no_row:
             return (0, 0, 0)
         else:
-            assert self.remaining_rows[action.chosen_row] == 1
-            return State.score_for(self.dice,action.chosen_row, self.remaining_rows, self.pts_needed_for_bonus, self.zeroed_yahtzee)
+            assert self.remaining_rows[action.getChosenRow()] == 1
+            return State.score_for(self.dice,action.getChosenRow(), self.remaining_rows, self.pts_needed_for_bonus, self.zeroed_yahtzee)
 
     def score_for(roll,t, slotsUsed, ptsNeededForBonus, zeroedYahtzee):
         upperBonus = 0
         yahtzeeBonus = 0
-        switcher = {
-            0:State.ones,
-            1:State.twos,
-            2:State.threes,
-            3:State.fours,
-            4:State.fives,
-            5:State.sixes,
-            6:State.three_of_a_kind,
-            7:State.four_of_a_kind,
-            8:State.full_house,
-            9:State.small_straight,
-            10:State.large_straight,
-            11:State.yahtzee,
-            12:State.chance
-        }
-        basePoints = switcher[t](roll)
+        # switcher = {
+        #     0:State.ones,
+        #     1:State.twos,
+        #     2:State.threes,
+        #     3:State.fours,
+        #     4:State.fives,
+        #     5:State.sixes,
+        #     6:State.three_of_a_kind,
+        #     7:State.four_of_a_kind,
+        #     8:State.full_house,
+        #     9:State.small_straight,
+        #     10:State.large_straight,
+        #     11:State.yahtzee,
+        #     12:State.chance
+        # }
+        # basePoints = switcher[t](roll)
+        basePoints = basePointsTable[roll][t]
         if ptsNeededForBonus > 0 and basePoints >= ptsNeededForBonus and State.isUpperSection(t):
             upperBonus = bonusAmount
         if State.five_of_a_kind(roll):
@@ -180,19 +171,41 @@ class State:
             #else: 
                 # This is a legal (but foolish) play where the user as rolled a Yahtzee but isn't using it to maximum benefit
         return (basePoints, upperBonus, yahtzeeBonus)
-        
+    
+    def getBasePoints(rollOutcomes):
+        switcher = {
+            0:State.ones,
+            1:State.twos,
+            2:State.threes,
+            3:State.fours,
+            4:State.fives,
+            5:State.sixes,
+            6:State.three_of_a_kind,
+            7:State.four_of_a_kind,
+            8:State.full_house,
+            9:State.small_straight,
+            10:State.large_straight,
+            11:State.yahtzee,
+            12:State.chance
+        }
+        result = {}
+        for rollOutcome, prob in rollOutcomes.items():
+            result[rollOutcome] = [switcher[t](rollOutcome) for t in range(max_turns)]  
+        return result
 
     def getNoRows():
         return tuple([0]*max_turns)
 
     def total_dice(held, rerolled):
-        #print("Held",held,"Rerolled",rerolled)
-        total =  tuple(map(sum,zip(held,rerolled)))
+        #total =  tuple(map(sum,zip(held,rerolled)))
         #print("Total ",total)
-        return total
+        #return total
+        #return tuple(starmap(add,zip(held,rerolled))) # Better than tuple(map(sum,zip... but not as good as all spelled out
+        return (held[0]+rerolled[0],held[1]+rerolled[1],held[2]+rerolled[2],held[3]+rerolled[3],held[4]+rerolled[4],held[5]+rerolled[5])
     
     def five_of_a_kind(t):
-        return max(t) == 5 and sum(t) == max(t)
+        maxt = max(t)
+        return maxt == 5 and sum(t) == maxt
 
     def yahtzee(t):
         assert(len(t) == 6)
@@ -278,4 +291,8 @@ class State:
 def startState():
     startState = State(none_held,tuple([1]*max_turns),3,63,False)
     return startState
+
+basePointsTable = State.getBasePoints(roll_outcomes[all_dice])
+print(len(basePointsTable))
+
     

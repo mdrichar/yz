@@ -1,5 +1,5 @@
 from yahtzee_state import State
-from yahtzee_state import Action
+import yahtzee_action
 import yahtzee_state
 import pickle
 

@@ -1,5 +1,5 @@
 from yahtzee_state import State
-from yahtzee_state import Action
+import yahtzee_action
 import yahtzee_state
 import random
 
@@ -20,7 +20,7 @@ class GameManager:
             print(options[randomActionIndex])
             nextState, points = self.current.apply(selectedAction)
             self.pointsScored += points
-            if selectedAction.chosen_row != yahtzee_state.no_row:
+            if selectedAction.getChosenRow() != yahtzee_state.no_row:
                 print(f"Score: {points} {self.pointsScored}")
             self.current = nextState
             if self.current.isFinalState():

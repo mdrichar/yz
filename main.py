@@ -1,6 +1,7 @@
 import concurrent.futures
 import itertools
-
+import yahtzee_action
+import time
 import unittest
 #import jsonpickle
 import pickle
@@ -16,16 +17,30 @@ from game_manager import GameManager
 roll_outcomes = yzi.getRollOutcomes()
 def computeAllStateValues(stateManager):
     for turnsRemaining in range(0,2):
-        known_values = stateManager.get(turnsRemaining-1,3) # The only "known values" for this iteration are those computed on the previous iteration
+        t1 = time.perf_counter(), time.process_time()
+        known_values = stateManager.read("pickle","pickled/states",turnsRemaining-1,3) # Only need he starting points for next fewer slots remaining
+        #known_values = stateManager.get(turnsRemaining-1,3) # The only "known values" for this iteration are those computed on the previous iteration
         for turnsUsedTuple, _ in yzi.allBinaryPermutationsFixedOnesCnt(yahtzee_state.max_turns,turnsRemaining):
             updated_values = computeAllStateValuesForUsedSlots(known_values, turnsUsedTuple)
+            break
         stateManager.categorize(updated_values)
         stateManager.writeAll("text","output/states")
+        for rollsRemaining in (0,1,2,3):
+            stateManager.write("pickle","pickled/states",turnsRemaining,rollsRemaining)
+        t2 = time.perf_counter(), time.process_time()
+        print(f" {turnsRemaining} Real time: {t2[0] - t1[0]:.2f} seconds")
+        print(f" {turnsRemaining} CPU time: {t2[1] - t1[1]:.2f} seconds")
+
 
 def computeAllStateValuesForUsedSlots(known_values, turnsUsedTuple):
-    zeroedYahtzeeOptions = (True, False) if turnsUsedTuple[yahtzee_state.yahtzeeSlot] == 0 else (True,)
+    zeroedYahtzeeOptions = (True, False) if turnsUsedTuple[yahtzee_action.yahtzeeSlot] == 0 else (True,)
+    #t1 = time.perf_counter(), time.process_time()
+    maxits = 10
+    currit = 1
     for zeroedYahtzeeOption in zeroedYahtzeeOptions:
         for ptsNeededForBonus, isPossible in enumerate(yzi.getBonusPtsPossibilities(yahtzee_state.State.upperOnly(turnsUsedTuple))):
+            if currit > maxits:
+                return known_values
             if not isPossible:
                 continue
             if sum(turnsUsedTuple) > 0:
@@ -36,11 +51,15 @@ def computeAllStateValuesForUsedSlots(known_values, turnsUsedTuple):
             s = yahtzee_state.State(yahtzee_state.none_held,turnsUsedTuple,3, ptsNeededForBonus, zeroedYahtzeeOption)
             print(s)
             state_evaluator.StateEvaluator.computeStateValue(s, known_values)
+            currit += 1
+    t2 = time.perf_counter(), time.process_time()
+    #print(f"    Real time: {t2[0] - t1[0]:.2f} seconds")
+    #print(f"    CPU time: {t2[1] - t1[1]:.2f} seconds")
     return known_values
 
 
 def parallelizeComputeStateValues(stateManager, workerCnt):
-    for turnsRemaining in range(4,6):
+    for turnsRemaining in range(0,2):
         print("TurnsRemaining",turnsRemaining)
         #knownValues = stateManager.get(turnsRemaining-1,3) # The only "known values" for this iteration are those computed on the previous iteration
         knownValues = stateManager.read("pickle","parallelpickled/states",turnsRemaining-1,3) # Only need he starting points for next fewer slots remaining
@@ -122,14 +141,14 @@ def printStateValues(state_values):
 
 if __name__ == '__main__':
     sm = StateManager()
-    #computeAllStateValues(sm)
     profiler = cProfile.Profile()
     profiler.enable()
-    parallelizeComputeStateValues(sm,14)
-    sm.writeAll("pickle","parallelpickled/states")
-    # profiler.disable()
-    # stats = pstats.Stats(profiler).sort_stats('ncalls')
-    # #stats.print_stats()
+    computeAllStateValues(sm)
+    #parallelizeComputeStateValues(sm,8)
+    #sm.writeAll("pickle","parallelpickled/states")
+    profiler.disable()
+    stats = pstats.Stats(profiler).sort_stats('ncalls')
+    stats.print_stats()
     # print(len(state_values))
     # sm.categorize(state_values)
     # StateManager.dumpStateValues(state_values,'states.pickle')
@@ -142,8 +161,8 @@ if __name__ == '__main__':
 
     #######################################################
     # Play a game
-    gm = GameManager()
-    gm.playRandom()
+    #gm = GameManager()
+    #gm.playRandom()
     #######################################################
             
     # print (len(reloaded_states))

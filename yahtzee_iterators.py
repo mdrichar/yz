@@ -52,7 +52,7 @@ for k, v in possibilities.items():
 print("END")
  
 def getBonusPtsPossibilities(t):
-    print(t,len(possibilities))
+    #print(t,len(possibilities))
     assert t in possibilities
     return possibilities[t]
         
