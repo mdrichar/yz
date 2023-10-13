@@ -1,4 +1,3 @@
-from yahtzee_state import State
 import yahtzee_action
 import yahtzee_state
 import random

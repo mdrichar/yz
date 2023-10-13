@@ -38,7 +38,7 @@ def computeAllStateValuesForUsedSlots(known_values, turnsUsedTuple):
     maxits = 10
     currit = 1
     for zeroedYahtzeeOption in zeroedYahtzeeOptions:
-        for ptsNeededForBonus, isPossible in enumerate(yzi.getBonusPtsPossibilities(yahtzee_state.State.upperOnly(turnsUsedTuple))):
+        for ptsNeededForBonus, isPossible in enumerate(yzi.getBonusPtsPossibilities(yahtzee_state.AbstractState.upperOnly(turnsUsedTuple))):
             if currit > maxits:
                 return known_values
             if not isPossible:
@@ -46,9 +46,9 @@ def computeAllStateValuesForUsedSlots(known_values, turnsUsedTuple):
             if sum(turnsUsedTuple) > 0:
                 for rollsRemaining in (0,1,2):
                     for possibleRoll in roll_outcomes[5]:
-                        s = yahtzee_state.State(possibleRoll,turnsUsedTuple,rollsRemaining, ptsNeededForBonus, zeroedYahtzeeOption)
+                        s = yahtzee_state.makeState(possibleRoll,turnsUsedTuple,rollsRemaining, ptsNeededForBonus, zeroedYahtzeeOption)
                         state_evaluator.StateEvaluator.computeStateValue(s, known_values)
-            s = yahtzee_state.State(yahtzee_state.none_held,turnsUsedTuple,3, ptsNeededForBonus, zeroedYahtzeeOption)
+            s = yahtzee_state.makeState(yahtzee_state.none_held,turnsUsedTuple,3, ptsNeededForBonus, zeroedYahtzeeOption)
             print(s)
             state_evaluator.StateEvaluator.computeStateValue(s, known_values)
             currit += 1

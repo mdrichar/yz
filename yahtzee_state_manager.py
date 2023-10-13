@@ -1,4 +1,3 @@
-from yahtzee_state import State
 import yahtzee_action
 import yahtzee_state
 import pickle
@@ -10,7 +9,7 @@ class StateManager:
     def categorize(self,stateValues):
         for k, v in stateValues.items():
             turnsLeft = k.openSlotCount()
-            rollsLeft = k.rollsLeft()
+            rollsLeft = k.getRollsLeft()
             #print(turnsLeft,rollsLeft)
             self.state_values[turnsLeft][rollsLeft][k] = v
         for tl in range(len(self.state_values)):

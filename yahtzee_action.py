@@ -82,10 +82,12 @@ class CondensedAction(AbstractAction):
     def getHeld(self):
         if (self.bit_field >> 22) == 1:
             # Type bit is 1, so it's a rerolled type
-            held = []
-            for i in range(6):
-                held.append((self.bit_field >> (i * 3)) & 0x07)
-            return tuple(held)
+            #held = []
+            #for i in range(6):
+            #    held.append((self.bit_field >> (i * 3)) & 0x07)
+            bf = self.bit_field
+            return (bf & 0x07, (bf>>3) &0x07, (bf>>6) &0x07, (bf>>9)&0x07, (bf>>12)&0x07, (bf>>15)&0x07)
+            #return tuple(held)
         else:
             return None
     
@@ -103,8 +105,8 @@ class CondensedAction(AbstractAction):
         return self.__str__()
 
 def makeAction(held=None, rerolled=None, chosen_row=None):
-    #return CondensedAction(held, rerolled, chosen_row)
-    return StandardAction(held, rerolled, chosen_row)
+    return CondensedAction(held, rerolled, chosen_row)
+    #return StandardAction(held, rerolled, chosen_row)
 # Example usage:
 
 
