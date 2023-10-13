@@ -96,7 +96,7 @@ class CondensedAction(AbstractAction):
         
     def __str__(self):
         chosenRow = self.getChosenRow()
-        if chosenRow:
+        if chosenRow != None:
             return f"Score {slot_name[chosenRow]}"
         else:
             return f"{self.getHeld()}+{self.getRerolled()}"

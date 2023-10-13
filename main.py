@@ -16,16 +16,19 @@ from game_manager import GameManager
 
 roll_outcomes = yzi.getRollOutcomes()
 def computeAllStateValues(stateManager):
+    max_index = yahtzee_state.max_rolls_allowed
     for turnsRemaining in range(0,2):
         t1 = time.perf_counter(), time.process_time()
-        known_values = stateManager.read("pickle","pickled/states",turnsRemaining-1,3) # Only need he starting points for next fewer slots remaining
+        known_values = [{} for _ in range(yahtzee_state.max_rolls_allowed+1)]
+        known_values[max_index] = stateManager.read("pickle","pickled/states",turnsRemaining-1,max_index) # Only need he starting points for next fewer slots remaining
         #known_values = stateManager.get(turnsRemaining-1,3) # The only "known values" for this iteration are those computed on the previous iteration
         for turnsUsedTuple, _ in yzi.allBinaryPermutationsFixedOnesCnt(yahtzee_state.max_turns,turnsRemaining):
-            updated_values = computeAllStateValuesForUsedSlots(known_values, turnsUsedTuple)
+            computeAllStateValuesForUsedSlots(known_values, turnsUsedTuple)
             break
-        stateManager.categorize(updated_values)
-        stateManager.writeAll("text","output/states")
+
         for rollsRemaining in (0,1,2,3):
+            stateManager.categorize(known_values[rollsRemaining])
+            stateManager.write("text","output/states",turnsRemaining,rollsRemaining)
             stateManager.write("pickle","pickled/states",turnsRemaining,rollsRemaining)
         t2 = time.perf_counter(), time.process_time()
         print(f" {turnsRemaining} Real time: {t2[0] - t1[0]:.2f} seconds")
@@ -40,7 +43,7 @@ def computeAllStateValuesForUsedSlots(known_values, turnsUsedTuple):
     for zeroedYahtzeeOption in zeroedYahtzeeOptions:
         for ptsNeededForBonus, isPossible in enumerate(yzi.getBonusPtsPossibilities(yahtzee_state.AbstractState.upperOnly(turnsUsedTuple))):
             if currit > maxits:
-                return known_values
+                return
             if not isPossible:
                 continue
             if sum(turnsUsedTuple) > 0:
@@ -55,7 +58,6 @@ def computeAllStateValuesForUsedSlots(known_values, turnsUsedTuple):
     t2 = time.perf_counter(), time.process_time()
     #print(f"    Real time: {t2[0] - t1[0]:.2f} seconds")
     #print(f"    CPU time: {t2[1] - t1[1]:.2f} seconds")
-    return known_values
 
 
 def parallelizeComputeStateValues(stateManager, workerCnt):
