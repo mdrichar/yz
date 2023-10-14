@@ -151,6 +151,7 @@ if __name__ == '__main__':
     profiler.disable()
     stats = pstats.Stats(profiler).sort_stats('ncalls')
     stats.print_stats()
+    print(yahtzee_state.callCnt)
     # print(len(state_values))
     # sm.categorize(state_values)
     # StateManager.dumpStateValues(state_values,'states.pickle')

@@ -13,6 +13,7 @@ max_turns=13
 bonusThreshold = 63
 bonusAmount = 35
 actionTbl = yahtzee_action.seedLegalActionTable()
+callCnt = 0
 
 #for i in itertools.product(range(3),range(3)):
 #    print(i)
@@ -74,24 +75,31 @@ class AbstractState(ABC):
     def stateTransitionsFrom(self, action):
         rollsLeft = self.getRollsLeft()
         remainingRows = self.getRemainingRows()
+        held = action.getHeld()
+        chosenRow = action.getChosenRow()
         if rollsLeft > 0:
-            assert action.getChosenRow() == no_row
-            for reroll_outcome, prob in roll_outcomes[action.getRerolled()].items():
-                total_outcome = AbstractState.total_dice(action.getHeld(), reroll_outcome)
+            assert chosenRow == no_row
+            # for reroll_outcome, prob in roll_outcomes[action.getRerolled()].items():
+            #     total_outcome = AbstractState.total_dice(held, reroll_outcome)
+            #     yield (makeState(total_outcome,remainingRows, rollsLeft-1, self.getPtsNeededForBonus(), self.getZeroedYahtzee()), prob)
+            myActionResults = actionResults[action]
+            assert len(myActionResults) > 0
+            for total_outcome, prob in myActionResults:
                 yield (makeState(total_outcome,remainingRows, rollsLeft-1, self.getPtsNeededForBonus(), self.getZeroedYahtzee()), prob)
         else:
             # If there are no rerolls left, the action must be to score a row
-            assert action.getChosenRow() != no_row
+            assert chosenRow != no_row
             # Make sure the row selected for scoring is available
-            assert remainingRows[action.getChosenRow()] == 1
-            still_remaining = AbstractState.get_leftovers_after_playing(remainingRows,action.getChosenRow())
+            assert remainingRows[chosenRow] == 1
+            still_remaining = AbstractState.get_leftovers_after_playing(remainingRows,chosenRow)
             basePoints, upperBonus, yahtzeeBonus = self.immediateReward(action)
-            ptsStillNeededForBonus = 0
+            ptsNeededForBonus = self.getPtsNeededForBonus() #pts needed in current state; cache to avoid multiple calls
+            ptsStillNeededForBonus = 0 # pts still needed in next state
             if upperBonus == 0 and sum(still_remaining[0:6]) > 0:
                 if AbstractState.isUpperSection(action.getChosenRow()):
-                    ptsStillNeededForBonus = max(0,self.getPtsNeededForBonus() - basePoints)
+                    ptsStillNeededForBonus = max(0,ptsNeededForBonus - basePoints)
                 else:
-                    ptsStillNeededForBonus = self.getPtsNeededForBonus()
+                    ptsStillNeededForBonus = ptsNeededForBonus
             zeroingYahtzee = True if self.getZeroedYahtzee() or (action.isScoringYahtzee() and basePoints == 0) else False
             #To do: compute ptsStillNeededForBonus
             yield (makeState(none_held, still_remaining, max_rolls_allowed,ptsStillNeededForBonus, zeroingYahtzee),1)
@@ -124,11 +132,12 @@ class AbstractState(ABC):
 
     def immediateReward(self, action):
         remainingRows = self.getRemainingRows()
-        if action.getChosenRow() == no_row:
+        chosenRow = action.getChosenRow()
+        if chosenRow == no_row:
             return (0, 0, 0)
         else:
-            assert remainingRows[action.getChosenRow()] == 1
-            return AbstractState.score_for(self.dice,action.getChosenRow(), remainingRows, self.getPtsNeededForBonus(), self.getZeroedYahtzee())
+            assert remainingRows[chosenRow] == 1
+            return AbstractState.score_for(self.getDice(),chosenRow, remainingRows, self.getPtsNeededForBonus(), self.getZeroedYahtzee())
 
     # @abstractmethod
     # def isFinalState(self):
@@ -300,30 +309,39 @@ class AbstractState(ABC):
     def get_leftovers_after_playing(remaining_rows,used):
         temp_list = list(remaining_rows)
         return tuple(temp_list[:used]+[temp_list[used]-1]+temp_list[used+1:])
-    
+#####################################################################################################################################################################    
 class CondensedState(AbstractState):
-    def __init__(self,dice,remaining_rows, rolls_left, pts_needed_for_bonus, zeroed_yahtzee):
+    def __init__(self,dice,remaining_rows, rolls_left, pts_needed_for_bonus, zeroed_yahtzee, full_state=None):
         # dice is tuple of six items with counts for how many 1s, 2s, 3s, ..., 6s 3bits each = 18 bits (0-17)
         # r = remaining_rows = 1 bit for each of 13 slots (18-30); 1 means slot is available, 0 means already scored there
         # rolls_left = how many more shakes left on this turn (0-3), two bits (31-32)
         # pts_needed_for_bonus is 0-63 integer; how many points more to secure the upper section bonus (0 if unattainable or already achieved): 6 bits (33-38)
         # zeroed_bonus is 1 if the yahtzee slot was score with a 0, meaning not eligible for Yahtzee bonus (39)
-        
-        r =remaining_rows
-        self.bit_field = (zeroed_yahtzee <<39) | (pts_needed_for_bonus << 33) | (rolls_left << 31) | (
-            r[12] << 30 | r[11] << 29 | r[10] << 28 | r[9] << 27 | r[8] << 26 | r[7] << 25 | r[6] << 24 | r[5] << 23 | r[4] << 22 | r[3] << 21 | r[2] << 20 | r[1] << 19 | r[0] << 18
-        ) | (
-            dice[5] << 15 | dice[4] << 12 | dice[3] << 9 | dice[2] << 6 | dice[1] << 3 | dice[0]
-        )
+        if full_state:
+            self.bit_field = full_state
+        else:
+            r =remaining_rows
+            self.bit_field = (zeroed_yahtzee <<39) | (pts_needed_for_bonus << 33) | (rolls_left << 31) | (
+                r[12] << 30 | r[11] << 29 | r[10] << 28 | r[9] << 27 | r[8] << 26 | r[7] << 25 | r[6] << 24 | r[5] << 23 | r[4] << 22 | r[3] << 21 | r[2] << 20 | r[1] << 19 | r[0] << 18
+            ) | (
+                dice[5] << 15 | dice[4] << 12 | dice[3] << 9 | dice[2] << 6 | dice[1] << 3 | dice[0]
+            )
         
     def __str__(self):
-        return f"{self.getDice()} {self.openSlotCount()}:{self.getRemainingRows()} {self.getRollsLeft()} {self.getPtsNeededForBonus()} {self.getZeroedYahtzee()}"  
+        return f"{self.getDice()} {self.openSlotCount():02d}:{self.getRemainingRows()} {self.getRollsLeft()} {self.getPtsNeededForBonus():02d} {self.getZeroedYahtzee()}" 
+    def __repr__(self):
+        return self.__str__() 
+    def __eq__(self,other):
+        return self.bit_field == other.bit_field
+    def __hash__(self):
+        return hash(self.bit_field)
+ 
     def openSlotCount(self):
         bf = self.bit_field
         return ( ((bf>>18) &0x01) + ((bf>>19) &0x01) + ((bf>>20)&0x01) + ((bf>>21)&0x01) + ((bf>>22)&0x01) + ((bf>>23)&0x01) + ((bf>>24)&0x01) + ((bf>>25)&0x01) + 
                 ((bf>>26)&0x01) + ((bf>>27)&0x01) +((bf>>28)&0x01) +((bf>>29)&0x01) + ((bf>>30) & 0x01))
     def isOpen(self,slot):
-        return (self.bit_field >> 18) & 0x01      
+        return (self.bit_field >> (slot+18)) & 0x01      
     def getDice(self):
         bf = self.bit_field
         return (bf & 0x07,  (bf>>3) &0x07, (bf>>6) &0x07, (bf>>9)&0x07, (bf>>12)&0x07, (bf>>15)&0x07)   
@@ -341,6 +359,45 @@ class CondensedState(AbstractState):
     def getZeroedYahtzee(self):
         bf = self.bit_field
         return (bf>>39 )&0x3F
+    def getFullState(self):
+        return self.bit_field
+    def setFullState(self, bit_field):
+        self.bit_field = bit_field
+    def stateTransitionsFrom(self, action):
+        rollsLeft = self.getRollsLeft()
+        remainingRows = self.getRemainingRows()
+        held = action.getHeld()
+        chosenRow = action.getChosenRow()
+        if rollsLeft > 0:
+            assert chosenRow == no_row
+            # for reroll_outcome, prob in roll_outcomes[action.getRerolled()].items():
+            #     total_outcome = AbstractState.total_dice(held, reroll_outcome)
+            #     yield (makeState(total_outcome,remainingRows, rollsLeft-1, self.getPtsNeededForBonus(), self.getZeroedYahtzee()), prob)
+            base_inards = self.getFullState()
+            common_next_inards = (base_inards & 0b1111111001111111111111000000000000000000) | ((rollsLeft-1) << 31)
+            for total_outcome_bits, prob in actionResultsBits[action]:
+                total_outcome = fromBits(total_outcome_bits)
+                newState = (makeState(total_outcome,remainingRows, rollsLeft-1, self.getPtsNeededForBonus(), self.getZeroedYahtzee()), prob)
+                yield newState
+        else:
+            # If there are no rerolls left, the action must be to score a row
+            assert chosenRow != no_row
+            # Make sure the row selected for scoring is available
+            assert remainingRows[chosenRow] == 1
+            still_remaining = AbstractState.get_leftovers_after_playing(remainingRows,chosenRow)
+            basePoints, upperBonus, yahtzeeBonus = self.immediateReward(action)
+            ptsNeededForBonus = self.getPtsNeededForBonus() #pts needed in current state; cache to avoid multiple calls
+            ptsStillNeededForBonus = 0 # pts still needed in next state
+            if upperBonus == 0 and sum(still_remaining[0:6]) > 0:
+                if AbstractState.isUpperSection(action.getChosenRow()):
+                    ptsStillNeededForBonus = max(0,ptsNeededForBonus - basePoints)
+                else:
+                    ptsStillNeededForBonus = ptsNeededForBonus
+            zeroingYahtzee = True if self.getZeroedYahtzee() or (action.isScoringYahtzee() and basePoints == 0) else False
+            #To do: compute ptsStillNeededForBonus
+            yield (makeState(none_held, still_remaining, max_rolls_allowed,ptsStillNeededForBonus, zeroingYahtzee),1)
+
+#####################################################################################################################################################################    
         
 class StandardState(AbstractState):
     def __init__(self,dice,remaining_rows, rolls_left, pts_needed_for_bonus, zeroed_yahtzee):
@@ -372,11 +429,38 @@ class StandardState(AbstractState):
     def getPtsNeededForBonus(self):
         return self.pts_needed_for_bonus
     
-
-
-
-
-
+def toBits(dice): # Return dice counts (up to 8 of each face) as a bit-field
+    return dice[5] << 15 | dice[4] << 12 | dice[3] << 9 | dice[2] << 6 | dice[1] << 3 | dice[0]
+def fromBits(bf): 
+    return (bf & 0x07,  (bf>>3) &0x07, (bf>>6) &0x07, (bf>>9)&0x07, (bf>>12)&0x07, (bf>>15)&0x07)
+# For each possible rolling action from (0,0,0,0,0,0)+5 to (5,0,0,0,0,0)+0 compute and cache all the possible outcomes
+def computeActionResultMaps():
+    actionResults = {}
+    actionResultsBits = {}
+    for candidateHold in itertools.product(
+        range(all_dice+1),
+        range(all_dice+1),
+        range(all_dice+1),
+        range(all_dice+1),
+        range(all_dice+1),
+        range(all_dice+1)
+    ):
+        holdCnt = sum(candidateHold) # total dice kept
+        results = []
+        resultsBits = []
+        if holdCnt <= all_dice:
+            rerolledCnt = all_dice - holdCnt # rerolled
+            action = yahtzee_action.makeAction(held=candidateHold,rerolled=rerolledCnt)
+            #print(action)
+            for reroll_outcome, prob in roll_outcomes[rerolledCnt].items():
+                total_outcome = AbstractState.total_dice(candidateHold, reroll_outcome)
+                #print(f"   {total_outcome} : {prob:.3f}")
+                results.append((total_outcome,prob))
+                resultsBits.append((toBits(total_outcome),prob))
+            actionResults[action] = results
+            actionResultsBits[action] = resultsBits
+    return (actionResults, actionResultsBits)
+actionResults, actionResultsBits = computeActionResultMaps()
 
 
     
@@ -385,16 +469,17 @@ def startState():
     return startState
 
 def makeState(dice,remaining_rows, rolls_left, pts_needed_for_bonus, zeroed_yahtzee):
-    return StandardState(dice,remaining_rows, rolls_left, pts_needed_for_bonus, zeroed_yahtzee)
-    #return CondensedState(dice,remaining_rows, rolls_left, pts_needed_for_bonus, zeroed_yahtzee)
+    #return StandardState(dice,remaining_rows, rolls_left, pts_needed_for_bonus, zeroed_yahtzee)
+    return CondensedState(dice,remaining_rows, rolls_left, pts_needed_for_bonus, zeroed_yahtzee)
 
 basePointsTable = AbstractState.getBasePoints(roll_outcomes[all_dice])
-print(len(basePointsTable))
+#print(len(basePointsTable))
 
     
 if __name__ == '__main__':  
     # Creating an Action with chosen_row
     myState = makeState((1,0,2,1,0,1),(1,0,1,0,1,0,1,0,1,0,1,0,1),3,63,0)
-    print(myState)
+    # print(myState)
     myState = makeState((0,0,0,0,0,5),(0,1,0,1,0,1,0,1,0,1,0,1,0),2,1,1)
-    print(myState)
+    # print(myState)
+    #computeActionResultMaps()

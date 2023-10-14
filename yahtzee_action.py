@@ -26,6 +26,10 @@ class StandardAction(AbstractAction):
         self.held = held
         self.rerolled = rerolled
         self.chosen_row = chosen_row
+    def __eq__(self,other):
+        return self.held == other.held and self.rerolled == other.rerolled and self.chosen_row == other.chosen_row
+    def __hash__(self):
+        return hash((self.held,self.rerolled,self.chosen_row))
     def __str__(self):
         if self.chosen_row and self.chosen_row  >= 0:
             return "Score for " + slot_name[self.chosen_row]
@@ -64,7 +68,11 @@ class CondensedAction(AbstractAction):
             # Set held bits (6 elements, 3 bits each)
             for i in range(6):
                 self.bit_field |= (held[i] & 0x07) << (i * 3)
-
+    def __eq__(self,other):
+        return self.bit_field == other.bit_field
+    def __hash__(self):
+        return hash(self.bit_field)
+        
     def getChosenRow(self):
         if (self.bit_field >> 22) & 1 == 0:
             # Type bit is 0, so it's a chosen_row type
@@ -145,8 +153,8 @@ if __name__ == '__main__':
     print("Held:", action_rerolled_held.getHeld())
     
     legalActionsTbl = seedLegalActionTable()
-    for possibleRoll, legalActions in legalActionsTbl.items():
-        print(possibleRoll)
-        print(len(legalActions))
-        for legalAction in legalActions:
-            print(f"   {legalAction}")
+    # for possibleRoll, legalActions in legalActionsTbl.items():
+    #      print(possibleRoll)
+    #      print(len(legalActions))
+    #     for legalAction in legalActions:
+    #         print(f"   {legalAction}")

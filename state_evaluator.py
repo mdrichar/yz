@@ -13,7 +13,7 @@ class StateEvaluator:
         rollsLeft = state.getRollsLeft()
         nextStateRollsLeft = (rollsLeft - 1) % (yahtzee_state.max_rolls_allowed + 1) # e.g., if 0 left now, there will be 3 in next State
         if state.openSlotCount() == 0:
-            print("Base case: ", state)
+            ##print("Base case: ", state)
             known_values[rollsLeft][state] = (0, None)
         else:
             max_value = -1000

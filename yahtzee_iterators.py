@@ -47,9 +47,9 @@ def computeBonusPtsPossibilities():
     return possibilities    
 
 possibilities = computeBonusPtsPossibilities()
-for k, v in possibilities.items():
-    print(k)
-print("END")
+# for k, v in possibilities.items():
+#     print(k)
+# print("END")
  
 def getBonusPtsPossibilities(t):
     #print(t,len(possibilities))

@@ -12,10 +12,10 @@ class StateManager:
             rollsLeft = k.getRollsLeft()
             #print(turnsLeft,rollsLeft)
             self.state_values[turnsLeft][rollsLeft][k] = v
-        for tl in range(len(self.state_values)):
-            for rl in range (len(self.state_values[tl])):
-                size = len(self.get(tl,rl))
-                print(f"{tl:02d} {rl:02d} {size:08d}")
+        # for tl in range(len(self.state_values)):
+        #     for rl in range (len(self.state_values[tl])):
+        #         size = len(self.get(tl,rl))
+        #         print(f"{tl:02d} {rl:02d} {size:08d}")
             
     def get(self,turnsLeft,rollsLeft):
         turnsLeft = max(0, turnsLeft) # If asked for < 0, just return 0; they are the foundation
