@@ -376,9 +376,11 @@ class CondensedState(AbstractState):
             base_inards = self.getFullState()
             common_next_inards = (base_inards & 0b1111111001111111111111000000000000000000) | ((rollsLeft-1) << 31)
             for total_outcome_bits, prob in actionResultsBits[action]:
-                total_outcome = fromBits(total_outcome_bits)
-                newState = (makeState(total_outcome,remainingRows, rollsLeft-1, self.getPtsNeededForBonus(), self.getZeroedYahtzee()), prob)
-                yield newState
+                #total_outcome = fromBits(total_outcome_bits) 
+                next_state_bits = common_next_inards | total_outcome_bits
+                newState = CondensedState(None,None,None,None,None,full_state=next_state_bits)
+                #newState = (makeState(total_outcome,remainingRows, rollsLeft-1, self.getPtsNeededForBonus(), self.getZeroedYahtzee()), prob)
+                yield (newState, prob)
         else:
             # If there are no rerolls left, the action must be to score a row
             assert chosenRow != no_row
