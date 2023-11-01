@@ -13,7 +13,6 @@ max_turns=13
 bonusThreshold = 63
 bonusAmount = 35
 actionTbl = yahtzee_action.seedLegalActionTable()
-callCnt = 0
 
 #for i in itertools.product(range(3),range(3)):
 #    print(i)
@@ -104,29 +103,29 @@ class AbstractState(ABC):
             #To do: compute ptsStillNeededForBonus
             yield (makeState(none_held, still_remaining, max_rolls_allowed,ptsStillNeededForBonus, zeroingYahtzee),1)
             
-    def apply(self, action):
-        rollsLeft = self.getRollsLeft()
-        remainingRows = self.getRemainingRows()
-        if rollsLeft > 0:
-            assert action.getChosenRow() == no_row
-            reroll_outcome = randomRoll(action.getRerolled())
-            total_outcome = AbstractState.total_dice(action.getHeld(), reroll_outcome)
-            return (makeState(total_outcome,remainingRows, rollsLeft-1, self.getPtsNeededForBonus(), self.getZeroedYahtzee()), 0)
-        else:
-            # If there are no rerolls left, the action must be to score a row
-            assert action.getChosenRow() != no_row
-            # Make sure the row selected for scoring is available
-            assert remainingRows[action.getChosenRow()] == 1
-            still_remaining = AbstractState.get_leftovers_after_playing(self.remaining_rows,action.getChosenRow())
-            basePoints, upperBonus, yahtzeeBonus = self.immediateReward(action)
-            ptsStillNeededForBonus = 0
-            if upperBonus == 0 and sum(still_remaining[0:6]) > 0:
-                if AbstractState.isUpperSection(action.getChosenRow()):
-                    ptsStillNeededForBonus = max(0,self.getPtsNeededForBonus() - basePoints)
-                else:
-                    ptsStillNeededForBonus = self.getPtsNeededForBonus()
-            zeroingYahtzee = True if self.getZeroedYahtzee() or (action.isScoringYahtzee() and basePoints == 0) else False
-            return (makeState(none_held, still_remaining, max_rolls_allowed,ptsStillNeededForBonus, zeroingYahtzee),basePoints+upperBonus+yahtzeeBonus)
+    # def apply(self, action):
+    #     rollsLeft = self.getRollsLeft()
+    #     remainingRows = self.getRemainingRows()
+    #     if rollsLeft > 0:
+    #         assert action.getChosenRow() == no_row
+    #         reroll_outcome = randomRoll(action.getRerolled())
+    #         total_outcome = AbstractState.total_dice(action.getHeld(), reroll_outcome)
+    #         return (makeState(total_outcome,remainingRows, rollsLeft-1, self.getPtsNeededForBonus(), self.getZeroedYahtzee()), 0)
+    #     else:
+    #         # If there are no rerolls left, the action must be to score a row
+    #         assert action.getChosenRow() != no_row
+    #         # Make sure the row selected for scoring is available
+    #         assert remainingRows[action.getChosenRow()] == 1
+    #         still_remaining = AbstractState.get_leftovers_after_playing(self.remaining_rows,action.getChosenRow())
+    #         basePoints, upperBonus, yahtzeeBonus = self.immediateReward(action)
+    #         ptsStillNeededForBonus = 0
+    #         if upperBonus == 0 and sum(still_remaining[0:6]) > 0:
+    #             if AbstractState.isUpperSection(action.getChosenRow()):
+    #                 ptsStillNeededForBonus = max(0,self.getPtsNeededForBonus() - basePoints)
+    #             else:
+    #                 ptsStillNeededForBonus = self.getPtsNeededForBonus()
+    #         zeroingYahtzee = True if self.getZeroedYahtzee() or (action.isScoringYahtzee() and basePoints == 0) else False
+    #         return (makeState(none_held, still_remaining, max_rolls_allowed,ptsStillNeededForBonus, zeroingYahtzee),basePoints+upperBonus+yahtzeeBonus)
         
             
 
@@ -139,42 +138,11 @@ class AbstractState(ABC):
             assert remainingRows[chosenRow] == 1
             return AbstractState.score_for(self.getDice(),chosenRow, remainingRows, self.getPtsNeededForBonus(), self.getZeroedYahtzee())
 
-    # @abstractmethod
-    # def isFinalState(self):
-    #     pass
-    # @abstractmethod
-    # def legal_actions(self):
-    #     pass
-    # @abstractmethod
-    # def stateTransitionsFrom(self, action):
-    #     pass
-    # @abstractmethod
-    # def apply(self, action):
-    #     pass
-    # @abstractmethod
-    # def immediateReward(self, action):
-    #     pass
 ################################################ Class-level functions
 
     def score_for(roll,t, slotsUsed, ptsNeededForBonus, zeroedYahtzee):
         upperBonus = 0
         yahtzeeBonus = 0
-        # switcher = {
-        #     0:AbstractState.ones,
-        #     1:AbstractState.twos,
-        #     2:AbstractState.threes,
-        #     3:AbstractState.fours,
-        #     4:AbstractState.fives,
-        #     5:AbstractState.sixes,
-        #     6:AbstractState.three_of_a_kind,
-        #     7:AbstractState.four_of_a_kind,
-        #     8:AbstractState.full_house,
-        #     9:AbstractState.small_straight,
-        #     10:AbstractState.large_straight,
-        #     11:AbstractState.yahtzee,
-        #     12:AbstractState.chance
-        # }
-        # basePoints = switcher[t](roll)
         basePoints = basePointsTable[roll][t]
         if ptsNeededForBonus > 0 and basePoints >= ptsNeededForBonus and AbstractState.isUpperSection(t):
             upperBonus = bonusAmount
@@ -396,6 +364,7 @@ class CondensedState(AbstractState):
                 else:
                     ptsStillNeededForBonus = ptsNeededForBonus
             zeroingYahtzee = True if self.getZeroedYahtzee() or (action.isScoringYahtzee() and basePoints == 0) else False
+            #print(f"self.gZY {self.getZeroedYahtzee()}, action.iSY {action.isScoringYahtzee()}, zeroingY: {zeroingYahtzee}")
             #To do: compute ptsStillNeededForBonus
             yield (makeState(none_held, still_remaining, max_rolls_allowed,ptsStillNeededForBonus, zeroingYahtzee),1)
 
@@ -480,8 +449,13 @@ basePointsTable = AbstractState.getBasePoints(roll_outcomes[all_dice])
     
 if __name__ == '__main__':  
     # Creating an Action with chosen_row
-    myState = makeState((1,0,2,1,0,1),(1,0,1,0,1,0,1,0,1,0,1,0,1),3,63,0)
+    myState = makeState((0,5,0,0,0,0),(1,0,0,0,0,0,0,0,0,0,0,1,0),0,0,0)
+    myAction = yahtzee_action.makeAction(None,None,0)
+    print(myState)
+    print(myAction)
+    for nextState, prob in myState.stateTransitionsFrom(myAction):
+        print(nextState)
     # print(myState)
-    myState = makeState((0,0,0,0,0,5),(0,1,0,1,0,1,0,1,0,1,0,1,0),2,1,1)
+    #myState = makeState((0,0,0,0,0,5),(0,1,0,1,0,1,0,1,0,1,0,1,0),2,1,1)
     # print(myState)
     #computeActionResultMaps()

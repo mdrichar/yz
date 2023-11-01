@@ -100,7 +100,8 @@ class CondensedAction(AbstractAction):
             return None
     
     def isScoringYahtzee(self):
-        return self.bit_field == (1 << 22) & yahtzeeSlot
+        #return self.bit_field == (1 << 22) & yahtzeeSlot
+        return self.getChosenRow() == yahtzeeSlot
         
     def __str__(self):
         chosenRow = self.getChosenRow()
