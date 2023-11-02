@@ -64,41 +64,49 @@ def computeAllStateValuesForUsedSlots(known_values, turnsUsedTuple, file=None):
     #print(f"    Real time: {t2[0] - t1[0]:.2f} seconds")
     #print(f"    CPU time: {t2[1] - t1[1]:.2f} seconds")
     
-def worker_process(work_queue, result_queue, known_values, worker_id):
+def worker_process(work_queue, result_queue, known_values, qLock, worker_id):
+    maxItems = 50
     try:
         while True:
             item = work_queue.get()
-
-            if item is None:
-                result_queue.put(item)
-                break  # Exit the loop when there is no more work
-            else:
-                result = computeSubsetStateValues([item], known_values, worker_id)
-                result_queue.put(result)
+            with qLock:
+                while result_queue.qsize() >= maxItems:
+                    print(f"Waiting with lock in {worker_id} at size {result_queue.qsize()}",flush=True)
+                    time.sleep(0.1)
+                if item is None:
+                    print(f"Putting in sentinel in worker process {worker_id}")
+                    result_queue.put(item)
+                    break  # Exit the loop when there is no more work
+                else:
+                    result = computeSubsetStateValues([item], known_values, worker_id)
+                    assert len(result) == 4
+                    print ("Result",flush=True)
+                    result_queue.put(result)
     except Exception as e:
-        print(f"Worker {worker_id} encountered an exception {e}")
-    print(f"Breaking out of {worker_id}")
+        print(f"Worker {worker_id} encountered an exception {e}",flush=True)
+    print(f"Breaking out of {worker_id}",flush=True)
     
-def consumer_process(result_queue, stateManager, workerCnt,sync_queue):
-    with open("consumer.txt","w") as file:
-        finishedWorkerCnt = 0
-        try:
-            while True:
-                result = result_queue.get()
-                if result == None:
-                    finishedWorkerCnt += 1
-                    if finishedWorkerCnt == workerCnt:
-                        print("All workers finished",flush=True, file=file)
-                        return
-                    else:
-                        continue
-                assert len(result) == 4
-                print("Processing result",flush=True,file=file)
-                for rollsRemaining in (0,1,2,3):
-                    stateManager.categorize(result[rollsRemaining])
-        except Exception as e:
-            print(f"Exception in consumer process {e}")
-    sync_queue.put(0)    
+# def consumer_process(result_queue, stateManager, workerCnt):
+#     with open("consumer.txt","w") as file:
+#         finishedWorkerCnt = 0
+#         try:
+#             while True:
+#                 result = result_queue.get()
+#                 if result == None:
+#                     finishedWorkerCnt += 1
+#                     print("Pulled sentinel in consume",flush=True,file=file)
+#                     if finishedWorkerCnt == workerCnt:
+#                         print("All workers finished",flush=True, file=file)
+#                         return
+#                     else:
+#                         continue
+#                 assert len(result) == 4
+#                 print("Processing result",flush=True,file=file)
+#                 for rollsRemaining in (0,1,2,3):
+#                     stateManager.categorize(result[rollsRemaining])
+#         except Exception as e:
+#             print(f"Exception in consumer process {e}")
+#     sync_queue.put(0)    
 
 def buildWorkloads(itemsPerBlock, blocksPerWave, supplyIterable):
     totalWorkload = []
@@ -148,43 +156,64 @@ def parallelizeComputeMultiprocessing(stateManager, workerCnt):
     for turnsRemaining in range(3,14):
         work_queue = multiprocessing.Queue()
         result_queue = multiprocessing.Queue()
-        sync_queue = multiprocessing.Queue()
+        qLock = multiprocessing.Lock()
         # Start worker processes
         workers = []
         knownValues = [{} for _ in range(yahtzee_state.max_rolls_allowed+1)]
         knownValues[max_index] = stateManager.read("pickle","parallelpickled/states",turnsRemaining-1,max_index) # Only need he starting points for next fewer slots remaining
 
         for i in range(1, num_workers + 1):
-            worker = multiprocessing.Process(target=worker_process, args=(work_queue, result_queue, knownValues, i))
+            worker = multiprocessing.Process(target=worker_process, args=(work_queue, result_queue, knownValues, qLock, i))
             worker.start()
             workers.append(worker)
-        consumer = multiprocessing.Process(target=consumer_process, args=(result_queue, stateManager, workerCnt, sync_queue))
-        consumer.start()
+        # consumer = multiprocessing.Process(target=consumer_process, args=(result_queue, stateManager, workerCnt, sync_queue))
+        # consumer.start()
         
         
         # Dispatch work items to worker processes
         for item, _ in yzi.allBinaryPermutationsFixedOnesCnt(yahtzee_state.max_turns,turnsRemaining):
-            print(f"Putting {item}")
+            print(f"Putting {item}",flush=True)
             work_queue.put(item)
-        print("Sending nones")
+        print("Sending nones",flush=True)
 
         for _ in range(num_workers):
             work_queue.put(None)
+            
+        with open("consumer.txt","w") as file:
+            finishedWorkerCnt = 0
+            try:
+                while True:
+                    result = result_queue.get()
+                    if result == None:
+                        finishedWorkerCnt += 1
+                        print("Pulled sentinel in consume",flush=True,file=file)
+                        if finishedWorkerCnt == workerCnt:
+                            print("All workers finished",flush=True, file=file)
+                            break
+                        else:
+                            continue
+                    assert len(result) == 4
+                    print(f"Processing result {result_queue.qsize()}",flush=True,file=file)
+                    for rollsRemaining in (0,1,2,3):
+                        stateManager.categorize(result[rollsRemaining])
+            except Exception as e:
+                print(f"Exception in consumer process {e}")
 
-        print("Waiting for sync signal")
-        syncer = sync_queue.get()
-        print("Got sync signal")
+
+        print("Waiting for sync signal",flush=True)
+        # syncer = sync_queue.get()
+        print("Got sync signal",flush=True)
         # Signal workers to exit by sending None for each worker
         # Wait for all worker processes to finish
         for i, worker in enumerate(workers):
-            print("Joining")
+            print("Joining",flush=True)
             worker.join()
-            print(f"Joined {i}")
+            print(f"Joined {i}",flush=True)
         for worker in workers:
             worker.terminate()
-        consumer.join()
-        consumer.terminate()
-        print("Done with joining")
+        # consumer.join()
+        # consumer.terminate()
+        print("Done with joining",flush=True)
         # Collect results from the result queue
         results = []
         for rollsRemaining in (0,1,2,3):
@@ -342,12 +371,14 @@ def purge(directory_path):
 
 if __name__ == '__main__':
     purge("procs")
+    purge("parallel")
+    purge("output")
     sm = StateManager()
     profiler = cProfile.Profile()
     profiler.enable()
     #computeAllStateValues(sm)
     #parallelizeComputeStateValues(sm,8)
-    parallelizeComputeMultiprocessing(sm,8)
+    parallelizeComputeMultiprocessing(sm,7)
     #sm.writeAll("pickle","parallelpickled/states")
     profiler.disable()
     stats = pstats.Stats(profiler).sort_stats('ncalls')
