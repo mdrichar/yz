@@ -72,6 +72,10 @@ class CondensedAction(AbstractAction):
         return self.bit_field == other.bit_field
     def __hash__(self):
         return hash(self.bit_field)
+    def __reduce__(self):
+        return (self.__class__, (self.bit_field,))
+    def __setstate__(self, state):
+        self.bit_field = state
         
     def getChosenRow(self):
         if (self.bit_field >> 22) & 1 == 0:

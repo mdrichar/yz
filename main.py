@@ -3,7 +3,6 @@ import itertools
 import yahtzee_action
 import time
 import unittest
-#import jsonpickle
 import pickle
 import msgpack
 import json
@@ -15,6 +14,26 @@ from yahtzee_state_manager import StateManager
 from game_manager import GameManager
 import os
 import multiprocessing
+import logging
+import psutil
+import gc
+import signal
+import sys
+import copy
+import fnmatch
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+
+# Set up file handler
+log_file_path = 'output.log'
+if os.path.exists(log_file_path):
+    os.remove(log_file_path)
+    
+file_handler = logging.FileHandler(log_file_path)
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+file_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
 
 roll_outcomes = yzi.getRollOutcomes()
 def computeAllStateValues(stateManager):
@@ -33,8 +52,8 @@ def computeAllStateValues(stateManager):
             stateManager.write("text","output/states",turnsRemaining,rollsRemaining)
             stateManager.write("pickle","pickled/states",turnsRemaining,rollsRemaining)
         t2 = time.perf_counter(), time.process_time()
-        print(f" {turnsRemaining} Real time: {t2[0] - t1[0]:.2f} seconds")
-        print(f" {turnsRemaining} CPU time: {t2[1] - t1[1]:.2f} seconds")
+        #print(f" {turnsRemaining} Real time: {t2[0] - t1[0]:.2f} seconds")
+        #print(f" {turnsRemaining} CPU time: {t2[1] - t1[1]:.2f} seconds")
 
 
 def computeAllStateValuesForUsedSlots(known_values, turnsUsedTuple, file=None):
@@ -54,60 +73,81 @@ def computeAllStateValuesForUsedSlots(known_values, turnsUsedTuple, file=None):
                             s = yahtzee_state.makeState(possibleRoll,turnsUsedTuple,rollsRemaining, ptsNeededForBonus, zeroedYahtzeeOption)
                             state_evaluator.StateEvaluator.computeStateValue(s, known_values)
                 s = yahtzee_state.makeState(yahtzee_state.none_held,turnsUsedTuple,3, ptsNeededForBonus, zeroedYahtzeeOption)
-                print(s,flush=True,file=file)
+                logger.info(s)
                 state_evaluator.StateEvaluator.computeStateValue(s, known_values)
     except Exception as e:
-        print(f"Exception in {e}")
+        logger.error(f"Exception in {e}")
         raise
             # currit += 1
     #t2 = time.perf_counter(), time.process_time()
     #print(f"    Real time: {t2[0] - t1[0]:.2f} seconds")
     #print(f"    CPU time: {t2[1] - t1[1]:.2f} seconds")
+
+def get_memory_usage(worker_id):
+    process = psutil.Process()
+    memory_info = process.memory_info()
+    rss = memory_info.rss / (1024 * 1024)
+    logger.info(f"{worker_id} Memory Usage: {rss:.2f} MB")
+    if rss > 1000:
+        gc.collect()
+        
+def signal_handler(signum, frame):
+    print("Process received signal", signum)
+    # Log information or perform cleanup before exiting
+    sys.exit(1)
     
-def worker_process(work_queue, result_queue, known_values, qLock, worker_id):
-    maxItems = 50
+def worker_process(work_queue, result_queue, base_known_values, qLock, turnsRemaining, worker_id):
+    signal.signal(signal.SIGTERM, signal_handler)
+    os.makedirs(f"partst/{turnsRemaining}/{worker_id}")
+    os.makedirs(f"parts/{turnsRemaining}/{worker_id}")
+    maxItems = 8
+    pulledItemCnt = 0
+    sm = StateManager()
+    partNumber = 0
+    itemsPerWrite = 5
+    known_values = copy.deepcopy(base_known_values)
     try:
         while True:
+            logger.info(f"{turnsRemaining} Pulling an item from queue {worker_id}")
+            get_memory_usage(worker_id)
             item = work_queue.get()
-            with qLock:
-                while result_queue.qsize() >= maxItems:
-                    print(f"Waiting with lock in {worker_id} at size {result_queue.qsize()}",flush=True)
-                    time.sleep(0.1)
-                if item is None:
-                    print(f"Putting in sentinel in worker process {worker_id}")
-                    result_queue.put(item)
-                    break  # Exit the loop when there is no more work
-                else:
-                    result = computeSubsetStateValues([item], known_values, worker_id)
-                    assert len(result) == 4
-                    print ("Result",flush=True)
-                    result_queue.put(result)
-    except Exception as e:
-        print(f"Worker {worker_id} encountered an exception {e}",flush=True)
-    print(f"Breaking out of {worker_id}",flush=True)
-    
-# def consumer_process(result_queue, stateManager, workerCnt):
-#     with open("consumer.txt","w") as file:
-#         finishedWorkerCnt = 0
-#         try:
-#             while True:
-#                 result = result_queue.get()
-#                 if result == None:
-#                     finishedWorkerCnt += 1
-#                     print("Pulled sentinel in consume",flush=True,file=file)
-#                     if finishedWorkerCnt == workerCnt:
-#                         print("All workers finished",flush=True, file=file)
-#                         return
-#                     else:
-#                         continue
-#                 assert len(result) == 4
-#                 print("Processing result",flush=True,file=file)
-#                 for rollsRemaining in (0,1,2,3):
-#                     stateManager.categorize(result[rollsRemaining])
-#         except Exception as e:
-#             print(f"Exception in consumer process {e}")
-#     sync_queue.put(0)    
+            #with qLock:
+            while result_queue.qsize() >= maxItems:
+                logger.debug(f"Waiting with lock in {worker_id} at size {result_queue.qsize()}")
+                time.sleep(0.1)
+            if item == None:
+                logger.info(f"{turnsRemaining} Putting in sentinel in worker process {worker_id}")
+                result_queue.put(item)
+                #Write any remaining items out
+                partNumber += 1
+                for rollsRemaining in (0,1,2,3):
+                        sm.write("pickle",f"parts/{turnsRemaining}/{worker_id}/P{partNumber}_states",turnsRemaining,rollsRemaining)
+                        sm.write("text",f"partst/{turnsRemaining}/{worker_id}/P{partNumber}_states",turnsRemaining,rollsRemaining)
 
+                break  # Exit the loop when there is no more work
+            else:
+                logger.info(f"{turnsRemaining} Pulled an item from queue {worker_id}: {item}")
+                pulledItemCnt += 1
+                result = computeSubsetStateValues([item], known_values, worker_id, sm)
+                assert result == None
+                logger.info(f"{turnsRemaining} Total items pulled so far by worker {worker_id} = {pulledItemCnt}")
+                logger.info(f"Result {item}")
+                #result_queue.put(result)
+                #sm.categorize(result)
+                if pulledItemCnt % itemsPerWrite == 0:
+                    partNumber += 1
+                    for rollsRemaining in (0,1,2,3):
+                        sm.write("pickle",f"parts/{turnsRemaining}/{worker_id}/P{partNumber}_states",turnsRemaining,rollsRemaining)
+                        sm.write("text",f"partst/{turnsRemaining}/{worker_id}/P{partNumber}_states",turnsRemaining,rollsRemaining)
+                    sm = StateManager()
+                    known_values = copy.deepcopy(base_known_values)
+    except Exception as e:
+        logger.error(f"Worker {worker_id} encountered an exception {e}")
+    logger.info(f"Breaking out of {worker_id}")
+    logger.info(f"Waiting at the end of {worker_id}")
+    time.sleep(5)
+    logger.info(f"Finished waiting at the end of {worker_id}")
+    
 def buildWorkloads(itemsPerBlock, blocksPerWave, supplyIterable):
     totalWorkload = []
     currentWave = []
@@ -139,21 +179,21 @@ def buildWorkloads(itemsPerBlock, blocksPerWave, supplyIterable):
 def isIn(assignment, knownValues):
     for k, v in knownValues.items():
         if k.getRemainingRows() == assignment:
-            print("Found",flush=True)
             return True
     return False
 def matchInputOutput(assignments, result):
-    print(f"CalledInputOutput {len(assignments)}, {len(result)}",flush=True)
     for assignment in assignments:
         for rollsRemaining in (0,1,2):
             if not isIn(assignment,result[rollsRemaining]):
-                print(f"{assignment} not found in result")
+                logger.error(f"{assignment} not found in result")
                 return False
     return True
 def parallelizeComputeMultiprocessing(stateManager, workerCnt):
     max_index = yahtzee_state.max_rolls_allowed
     num_workers = workerCnt  # Set the number of worker processes
-    for turnsRemaining in range(3,14):
+    for turnsRemaining in range(1,14):
+        os.makedirs(f"parts/{turnsRemaining}")
+        os.makedirs(f"partst/{turnsRemaining}")
         work_queue = multiprocessing.Queue()
         result_queue = multiprocessing.Queue()
         qLock = multiprocessing.Lock()
@@ -163,18 +203,18 @@ def parallelizeComputeMultiprocessing(stateManager, workerCnt):
         knownValues[max_index] = stateManager.read("pickle","parallelpickled/states",turnsRemaining-1,max_index) # Only need he starting points for next fewer slots remaining
 
         for i in range(1, num_workers + 1):
-            worker = multiprocessing.Process(target=worker_process, args=(work_queue, result_queue, knownValues, qLock, i))
+            worker = multiprocessing.Process(target=worker_process, args=(work_queue, result_queue, knownValues, qLock, turnsRemaining, i))
             worker.start()
             workers.append(worker)
-        # consumer = multiprocessing.Process(target=consumer_process, args=(result_queue, stateManager, workerCnt, sync_queue))
-        # consumer.start()
-        
         
         # Dispatch work items to worker processes
+        workItemsPutCnt = 0
         for item, _ in yzi.allBinaryPermutationsFixedOnesCnt(yahtzee_state.max_turns,turnsRemaining):
-            print(f"Putting {item}",flush=True)
+            logger.info(f"{turnsRemaining} Putting {item}")
             work_queue.put(item)
-        print("Sending nones",flush=True)
+            workItemsPutCnt += 1
+        logger.info(f"{turnsRemaining} Total Work Items Put {workItemsPutCnt}")
+        logger.info(f"Sending nones {turnsRemaining}")
 
         for _ in range(num_workers):
             work_queue.put(None)
@@ -184,48 +224,62 @@ def parallelizeComputeMultiprocessing(stateManager, workerCnt):
             try:
                 while True:
                     result = result_queue.get()
+                    assert result == None
                     if result == None:
                         finishedWorkerCnt += 1
-                        print("Pulled sentinel in consume",flush=True,file=file)
+                        logger.info(f"Pulled sentinel in consume: turnsRemaining {turnsRemaining} finishedWorkers {finishedWorkerCnt}")
                         if finishedWorkerCnt == workerCnt:
-                            print("All workers finished",flush=True, file=file)
+                            logger.info("All workers finished")
                             break
                         else:
                             continue
-                    assert len(result) == 4
-                    print(f"Processing result {result_queue.qsize()}",flush=True,file=file)
-                    for rollsRemaining in (0,1,2,3):
-                        stateManager.categorize(result[rollsRemaining])
+                    # assert len(result) == 4
+                    # print(f"Processing result {result_queue.qsize()}",flush=True,file=file)
+                    # for rollsRemaining in (0,1,2,3):
+                    #     stateManager.categorize(result[rollsRemaining])
             except Exception as e:
                 print(f"Exception in consumer process {e}")
 
 
-        print("Waiting for sync signal",flush=True)
+        logger.info("Waiting for sync signal")
         # syncer = sync_queue.get()
-        print("Got sync signal",flush=True)
+        logger.info("Got sync signal")
         # Signal workers to exit by sending None for each worker
         # Wait for all worker processes to finish
         for i, worker in enumerate(workers):
-            print("Joining",flush=True)
+            logger.info("Joining")
             worker.join()
-            print(f"Joined {i}",flush=True)
+            logger.info(f"Joined {i}")
         for worker in workers:
             worker.terminate()
         # consumer.join()
         # consumer.terminate()
-        print("Done with joining",flush=True)
+        logger.info("Done with joining")
+        #assert False
+        for i in range(1,workerCnt + 1):
+            for rollsRemaining in (0,1,2,3):
+                directory = f"parts/{turnsRemaining}/{i}"
+                for filename in os.listdir(directory):
+                    logger.debug(f"Considering {filename}")
+                    if fnmatch.fnmatch(filename, f"P*_states_{turnsRemaining}_{rollsRemaining}*"):
+                        full_path = os.path.join(directory,filename)
+                        logger.debug(f"Matched {filename}")
+                        stateManager.readFull("pickle",full_path,turnsRemaining,rollsRemaining,mode='Append')   
+                    else:
+                        logger.debug(f"Rejected {filename}")
+                        
         # Collect results from the result queue
         results = []
         for rollsRemaining in (0,1,2,3):
             try:
-                print(f"Writing {i} {rollsRemaining}",flush=True)
+                logger.info(f"Writing {i} {rollsRemaining}")
                 stateManager.write("pickle","parallelpickled/states",turnsRemaining,rollsRemaining)
-                print(f"Writing more {i} {rollsRemaining}",flush=True)
+                logger.info(f"Writing more {i} {rollsRemaining}")
                 stateManager.write("text","parallel/states",turnsRemaining,rollsRemaining)
-                print(f"Written {i} {rollsRemaining}",flush=True)
+                logger.info(f"Written {i} {rollsRemaining}")
                 i += 1
             except Exception as e:
-                print(f"Exception during writeouts: {e}")
+                logger.info(f"Exception during writeouts: {e}")
                 raise
 
 
@@ -233,17 +287,16 @@ def parallelizeComputeMultiprocessing(stateManager, workerCnt):
 def parallelizeComputeStateValues(stateManager, workerCnt):
     max_index = yahtzee_state.max_rolls_allowed
     for turnsRemaining in range(1,14):
-        print("TurnsRemaining",turnsRemaining)
+        logger.debug("TurnsRemaining",turnsRemaining)
         t1 = time.perf_counter(), time.process_time()
         #knownValues = stateManager.get(turnsRemaining-1,3) # The only "known values" for this iteration are those computed on the previous iteration
         #assert knownValues[max] != None
         maxItemsPerBatch = 1 
         allWorkerAssignments = buildWorkloads(maxItemsPerBatch, workerCnt, yzi.allBinaryPermutationsFixedOnesCnt(yahtzee_state.max_turns,turnsRemaining))
-        print (len(allWorkerAssignments))
         for i, wave in enumerate(allWorkerAssignments):
-            print(f"Wave {i} for round {turnsRemaining}")
+            logger.debug(f"Wave {i} for round {turnsRemaining}")
             for assignment in wave:
-                print(assignment)
+                logger.debug(assignment)
         for workSet in allWorkerAssignments:
             knownValues = [{} for _ in range(yahtzee_state.max_rolls_allowed+1)]
             knownValues[max_index] = stateManager.read("pickle","parallelpickled/states",turnsRemaining-1,max_index) # Only need he starting points for next fewer slots remaining
@@ -252,52 +305,52 @@ def parallelizeComputeStateValues(stateManager, workerCnt):
                 try:
                     #partial will unpack the tuple of arguments the gets passed in so that computeSubsetStateValues ses two distinct args
                     results = list(executor.map(computeSubsetStateValuesWrapper,args))
-                    print("Have results", flush=True)
                     i = 0
                     for j, result in enumerate(results):
-                        print("Checking input",flush=True)
                         if not matchInputOutput(args[j][0],result):
                             raise Exception("Did not find all assignments in results")
                         for rollsRemaining in (0,1,2,3):
-                            print(f"Before categorize {i} {rollsRemaining}", flush=True)
                             stateManager.categorize(result[rollsRemaining])
-                            print(f"After categorize {i} {rollsRemaining}", flush=True)
                         i += 1
                 except Exception as e:
-                    print(f"Exception during parallel execution: {e}")
+                    logger.error(f"Exception during parallel execution: {e}")
                     raise
         i = 0
         for rollsRemaining in (0,1,2,3):
             try:
-                print(f"Writing {i} {rollsRemaining}",flush=True)
+                logger.debug(f"Writing {i} {rollsRemaining}")
                 stateManager.write("pickle","parallelpickled/states",turnsRemaining,rollsRemaining)
-                print(f"Writing more {i} {rollsRemaining}",flush=True)
+                logger.debug(f"Writing more {i} {rollsRemaining}")
                 stateManager.write("text","parallel/states",turnsRemaining,rollsRemaining)
-                print(f"Written {i} {rollsRemaining}",flush=True)
+                logger.debug(f"Written {i} {rollsRemaining}")
                 i += 1
             except Exception as e:
-                print(f"Exception during writeouts: {e}")
+                logger.error(f"Exception during writeouts: {e}")
                 raise
                 
 
-def computeSubsetStateValues(turnsUsedTuples, knownValues, workerId=None):
+def computeSubsetStateValues(turnsUsedTuples, knownValues, workerId=None, sm=None):
     slotsUsed = sum(turnsUsedTuples[0]) if len(turnsUsedTuples) > 0 else 0
     file_path = f"procs/process{slotsUsed}_{workerId}.txt"
     with open(file_path,"a") as file:
         try:
-            print("Kicking off computeSubset",file=file,flush=True)
+            logger.debug("Kicking off computeSubset")
             for turnsUsedTuple in turnsUsedTuples:
                 computeAllStateValuesForUsedSlots(knownValues, turnsUsedTuple, file) # Last value returned should include all the previous updates
             #Make a copy for output purposes
-            print("Finished computeSubsetStateValues; compiling copy of results",flush=True,file=file)
-            result = [{} for _ in range(len(knownValues))]
-            for i in range(len(knownValues)):
-                for k, v in knownValues[i].items():
-                    result[i][k] = v
-            print("Finished compiling result; returning",flush=True,file=file)
-            return result
+            if sm != None:
+                sm.categorizeCatalog(knownValues)
+                return None
+            else:
+                logger.debug("Finished computeSubsetStateValues; compiling copy of results")
+                result = [{} for _ in range(len(knownValues))]
+                for i in range(len(knownValues)):
+                    for k, v in knownValues[i].items():
+                        result[i][k] = v
+                logger.debug("Finished compiling result; returning")
+                return result
         except Exception as e:
-            print(f"Error: {e}",file=file,flush=True)
+            logger.debug(f"Error: {e}")
             raise
 
 def computeSubsetStateValuesWrapper(args):
@@ -305,7 +358,7 @@ def computeSubsetStateValuesWrapper(args):
         result = computeSubsetStateValues(*args)
         return result
     except Exception as e:
-        print(f"Error in compute SubsetStateValuesWrapper: {e}")
+        logger.debug(f"Error in compute SubsetStateValuesWrapper: {e}")
         raise
 
 
@@ -348,37 +401,43 @@ def printStateValues(state_values):
             print(f"{k}={v[0]:.2f},{v[1]}")
             
 import os
+import shutil
 
 
 def purge(directory_path):
     # Check if the directory exists
     if os.path.exists(directory_path):
         # Get the list of files in the directory
-        files = os.listdir(directory_path)
+        shutil.rmtree(directory_path)
+        # files = os.listdir(directory_path)
 
-        # Iterate over each file and delete it
-        for file in files:
-            file_path = os.path.join(directory_path, file)
-            try:
-                os.remove(file_path)
-                print(f"Deleted: {file_path}")
-            except Exception as e:
-                print(f"Error deleting {file_path}: {e}")
+        # # Iterate over each file and delete it
+        # for file in files:
+        #     file_path = os.path.join(directory_path, file)
+        #     try:
+        #         os.remove(file_path)
+        #         logger.info(f"Deleted: {file_path}")
+        #     except Exception as e:
+        #         logger.error(f"Error deleting {file_path}: {e}")
 
     else:
-        print(f"The directory {directory_path} does not exist.")
+        logger.debug(f"The directory {directory_path} does not exist.")
+    os.makedirs(directory_path, exist_ok=True)
 
 
 if __name__ == '__main__':
     purge("procs")
     purge("parallel")
     purge("output")
+    purge("parts")
+    purge("partst")
+    purge("parallelpickled")
     sm = StateManager()
     profiler = cProfile.Profile()
     profiler.enable()
     #computeAllStateValues(sm)
     #parallelizeComputeStateValues(sm,8)
-    parallelizeComputeMultiprocessing(sm,7)
+    parallelizeComputeMultiprocessing(sm,4)
     #sm.writeAll("pickle","parallelpickled/states")
     profiler.disable()
     stats = pstats.Stats(profiler).sort_stats('ncalls')

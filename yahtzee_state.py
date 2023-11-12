@@ -303,6 +303,13 @@ class CondensedState(AbstractState):
         return self.bit_field == other.bit_field
     def __hash__(self):
         return hash(self.bit_field)
+    def __reduce__(self):
+        return (self.makeFromFullState, (self.bit_field,))
+    def __setstate__(self, state):
+        self.__init__(None,None,None,None,None,state)
+    @classmethod
+    def makeFromFullState(cls,in_bit_field):
+        return cls(None,None,None,None,None,in_bit_field)
  
     def openSlotCount(self):
         bf = self.bit_field

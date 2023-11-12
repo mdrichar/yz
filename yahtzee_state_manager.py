@@ -1,10 +1,16 @@
 import yahtzee_action
 import yahtzee_state
 import pickle
+import os
 
 class StateManager:
     def __init__(self):        
         self.state_values = [[ {}, {}, {}, {} ] for _ in range(yahtzee_state.max_turns+1)]
+    
+    def categorizeCatalog(self,catalogedStateValues):
+        assert len(catalogedStateValues) == 4
+        for item in catalogedStateValues:
+            self.categorize(item)
     
     def categorize(self,stateValues):
         for k, v in stateValues.items():
@@ -40,16 +46,30 @@ class StateManager:
             file_path = f"{prefix}_{turnsLeft}_{rollsLeft}.pickle"
             StateManager.dumpStateValues(self.get(turnsLeft,rollsLeft),file_path)
 
-    def read(self,format, prefix, turnsLeft, rollsLeft):
+    def read(self,format, prefix, turnsLeft, rollsLeft, mode=None):
         assert rollsLeft in (0,1,2,3)
         assert format in ("pickle",)
         if format == "pickle":
             file_path = f"{prefix}_{turnsLeft}_{rollsLeft}.pickle"
             loadedValues = StateManager.loadStateValues(file_path)
             assert loadedValues != None
-            self.set(turnsLeft,rollsLeft,loadedValues)
+            if mode == 'Append':
+                self.categorize(loadedValues)
+            else:
+                self.set(turnsLeft,rollsLeft,loadedValues)
             return loadedValues
 
+    def readFull(self,format, file_path, turnsLeft, rollsLeft, mode=None):
+        assert rollsLeft in (0,1,2,3)
+        assert format in ("pickle",)
+        if format == "pickle":
+            loadedValues = StateManager.loadStateValues(file_path)
+            assert loadedValues != None
+            if mode == 'Append':
+                self.categorize(loadedValues)
+            else:
+                self.set(turnsLeft,rollsLeft,loadedValues)
+            return loadedValues
             
     def dumpStateValues(state_values, filepath):
         if len(state_values) > 0:
@@ -58,6 +78,8 @@ class StateManager:
             
     def loadStateValues(filepath):
         state_values = {}
+        if not os.path.exists(filepath):
+            return state_values
         try:
             with open(filepath, 'rb') as file:
                 state_values = pickle.load(file)
