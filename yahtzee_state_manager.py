@@ -2,6 +2,15 @@ import yahtzee_action
 import yahtzee_state
 import pickle
 import os
+import logging
+from multiprocessing import current_process
+logger = logging.getLogger(__name__)
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+handler = logging.FileHandler('manager.log')
+handler.setFormatter(formatter)
+logger.addHandler(handler)
+# logger.setLevel(logging.DEBUG)
+#logger.propagate=False
 
 class StateManager:
     def __init__(self):        
@@ -83,6 +92,7 @@ class StateManager:
         try:
             with open(filepath, 'rb') as file:
                 state_values = pickle.load(file)
+                logger.debug(f"loaded pickle values {len(state_values)}")
             return state_values
         except FileNotFoundError:
             print(f"The file '{filepath}' does not exist.")

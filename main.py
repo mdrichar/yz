@@ -4,36 +4,39 @@ import yahtzee_action
 import time
 import unittest
 import pickle
-import msgpack
 import json
 import yahtzee_iterators as yzi
 import yahtzee_state
 import state_evaluator 
 import cProfile, pstats
-from yahtzee_state_manager import StateManager
 from game_manager import GameManager
 import os
 import multiprocessing
 import logging
-import psutil
 import gc
 import signal
 import sys
 import copy
 import fnmatch
+import tracemalloc
+import yzlogger
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+glogger = None
 
 # Set up file handler
 log_file_path = 'output.log'
 if os.path.exists(log_file_path):
     os.remove(log_file_path)
-    
+
+logger = logging.getLogger(__name__)    
 file_handler = logging.FileHandler(log_file_path)
 formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 file_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
+logger.setLevel(logging.DEBUG)
+
+from yahtzee_state_manager import StateManager
+
 
 roll_outcomes = yzi.getRollOutcomes()
 def computeAllStateValues(stateManager):
@@ -57,6 +60,7 @@ def computeAllStateValues(stateManager):
 
 
 def computeAllStateValuesForUsedSlots(known_values, turnsUsedTuple, file=None):
+    logger = logging.getLogger(__name__)
     try:
         zeroedYahtzeeOptions = (True, False) if turnsUsedTuple[yahtzee_action.yahtzeeSlot] == 0 else (False,)
         #t1 = time.perf_counter(), time.process_time()
@@ -77,16 +81,17 @@ def computeAllStateValuesForUsedSlots(known_values, turnsUsedTuple, file=None):
                 state_evaluator.StateEvaluator.computeStateValue(s, known_values)
     except Exception as e:
         logger.error(f"Exception in {e}")
-        raise
+        raise 
             # currit += 1
     #t2 = time.perf_counter(), time.process_time()
     #print(f"    Real time: {t2[0] - t1[0]:.2f} seconds")
     #print(f"    CPU time: {t2[1] - t1[1]:.2f} seconds")
 
 def get_memory_usage(worker_id):
-    process = psutil.Process()
-    memory_info = process.memory_info()
-    rss = memory_info.rss / (1024 * 1024)
+    logger = logging.getLogger(__name__)
+    process = os.getpid()
+    memory_info = os.popen(f"ps -p {process} -o rss=").read()
+    rss = int (memory_info)/ 1024
     logger.info(f"{worker_id} Memory Usage: {rss:.2f} MB")
     if rss > 1000:
         gc.collect()
@@ -96,7 +101,20 @@ def signal_handler(signum, frame):
     # Log information or perform cleanup before exiting
     sys.exit(1)
     
-def worker_process(work_queue, result_queue, base_known_values, qLock, turnsRemaining, worker_id):
+def worker_process(work_queue, result_queue, log_queue, log_configurer, base_known_values, qLock, turnsRemaining, worker_id):
+    print("Got Started")
+    file_handler = logging.FileHandler(f"logs/{worker_id}.log")
+    formatter = logging.Formatter('WP %(asctime)s - %(levelname)s - %(message)s')
+    file_handler.setFormatter(formatter)
+    logger = log_configurer(log_queue)
+    
+    
+    
+    logger.debug(f"{worker_id} work_queue {work_queue.qsize()} bkv[0]: {len(base_known_values[0])} bkv[3]: {len(base_known_values[3])}")
+    #objgraph.show_most_common_types()
+    tracemalloc.start()
+    logger.info(f"{worker_id} Allocated memory at iteration start {tracemalloc.get_traced_memory()}")
+
     signal.signal(signal.SIGTERM, signal_handler)
     os.makedirs(f"partst/{turnsRemaining}/{worker_id}")
     os.makedirs(f"parts/{turnsRemaining}/{worker_id}")
@@ -128,7 +146,10 @@ def worker_process(work_queue, result_queue, base_known_values, qLock, turnsRema
             else:
                 logger.info(f"{turnsRemaining} Pulled an item from queue {worker_id}: {item}")
                 pulledItemCnt += 1
+                # tracemalloc.start()
                 result = computeSubsetStateValues([item], known_values, worker_id, sm)
+                # logger.info(f"{worker_id} Allocated memory for one iteration {tracemalloc.get_traced_memory()}")
+                # tracemalloc.stop()
                 assert result == None
                 logger.info(f"{turnsRemaining} Total items pulled so far by worker {worker_id} = {pulledItemCnt}")
                 logger.info(f"Result {item}")
@@ -145,6 +166,8 @@ def worker_process(work_queue, result_queue, base_known_values, qLock, turnsRema
         logger.error(f"Worker {worker_id} encountered an exception {e}")
     logger.info(f"Breaking out of {worker_id}")
     logger.info(f"Waiting at the end of {worker_id}")
+    logger.info(f"{worker_id} Allocated memory for worker {tracemalloc.get_traced_memory()}")
+    tracemalloc.stop()
     time.sleep(5)
     logger.info(f"Finished waiting at the end of {worker_id}")
     
@@ -188,32 +211,85 @@ def matchInputOutput(assignments, result):
                 logger.error(f"{assignment} not found in result")
                 return False
     return True
+
+def worker_configurer(queue):
+    handler = logging.handlers.QueueHandler(queue)
+    logger = logging.getLogger(__name__)
+    logger.addHandler(handler)
+    return logger
+
+def listener_configurer():
+    # Set up file handler
+    log_file_path = 'listener.log'
+    if os.path.exists(log_file_path):
+        os.remove(log_file_path)
+
+    logger = logging.getLogger(__name__)    
+    file_handler = logging.FileHandler(log_file_path)
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+    logger.setLevel(logging.DEBUG)
+    return logger
+    
+
+def listener_process(queue, configurer):
+    logger = configurer()
+    while True:
+        try:
+            print("In listener")
+            record = queue.get()
+            if record is None:
+                break
+            logger.handle(record)
+            print("Handled")
+        except Exception as e:
+            import sys, traceback
+            print('Whoops! Problem:', file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
+    
 def parallelizeComputeMultiprocessing(stateManager, workerCnt):
     max_index = yahtzee_state.max_rolls_allowed
     num_workers = workerCnt  # Set the number of worker processes
     for turnsRemaining in range(1,14):
         os.makedirs(f"parts/{turnsRemaining}")
         os.makedirs(f"partst/{turnsRemaining}")
-        work_queue = multiprocessing.Queue()
-        result_queue = multiprocessing.Queue()
+        work_queue = multiprocessing.Queue(-1)
+        result_queue = multiprocessing.Queue(-1)
+        log_queue = multiprocessing.Queue(-1)
         qLock = multiprocessing.Lock()
         # Start worker processes
         workers = []
+        tracemalloc.start()
         knownValues = [{} for _ in range(yahtzee_state.max_rolls_allowed+1)]
         knownValues[max_index] = stateManager.read("pickle","parallelpickled/states",turnsRemaining-1,max_index) # Only need he starting points for next fewer slots remaining
-
-        for i in range(1, num_workers + 1):
-            worker = multiprocessing.Process(target=worker_process, args=(work_queue, result_queue, knownValues, qLock, turnsRemaining, i))
-            worker.start()
-            workers.append(worker)
+        print("Made it this far")
+        logger.info(f"Allocated memory for known values in main thread {tracemalloc.get_traced_memory()}")
+        tracemalloc.stop()
+        
+        tracemalloc.start()
+        logListener = multiprocessing.Process(target=listener_process, args=(log_queue, listener_configurer))
+        logListener.start()
+        pool = multiprocessing.Pool(processes=num_workers)
+        try: 
+            for i in range(1, num_workers + 1):
+                pool.apply_async(worker_process, args=(work_queue, result_queue, log_queue, worker_configurer, knownValues, qLock, turnsRemaining, i))
+            logger.info(f"Allocated memory for creating worker processes in main thread {tracemalloc.get_traced_memory()}")
+            tracemalloc.stop()
+        except Exception as e:
+            print(f"Worker {i} encountered an error: {e} ")
         
         # Dispatch work items to worker processes
+        tracemalloc.start()
         workItemsPutCnt = 0
         for item, _ in yzi.allBinaryPermutationsFixedOnesCnt(yahtzee_state.max_turns,turnsRemaining):
             logger.info(f"{turnsRemaining} Putting {item}")
             work_queue.put(item)
             workItemsPutCnt += 1
         logger.info(f"{turnsRemaining} Total Work Items Put {workItemsPutCnt}")
+        logger.info(f"Allocated memory for putting items in work queue in main thread {tracemalloc.get_traced_memory()}")
+        tracemalloc.stop()
+
         logger.info(f"Sending nones {turnsRemaining}")
 
         for _ in range(num_workers):
@@ -246,12 +322,8 @@ def parallelizeComputeMultiprocessing(stateManager, workerCnt):
         logger.info("Got sync signal")
         # Signal workers to exit by sending None for each worker
         # Wait for all worker processes to finish
-        for i, worker in enumerate(workers):
-            logger.info("Joining")
-            worker.join()
-            logger.info(f"Joined {i}")
-        for worker in workers:
-            worker.terminate()
+        pool.close()
+        pool.join() 
         # consumer.join()
         # consumer.terminate()
         logger.info("Done with joining")
@@ -334,7 +406,7 @@ def computeSubsetStateValues(turnsUsedTuples, knownValues, workerId=None, sm=Non
     file_path = f"procs/process{slotsUsed}_{workerId}.txt"
     with open(file_path,"a") as file:
         try:
-            logger.debug("Kicking off computeSubset")
+            glogger.debug("Kicking off computeSubset")
             for turnsUsedTuple in turnsUsedTuples:
                 computeAllStateValuesForUsedSlots(knownValues, turnsUsedTuple, file) # Last value returned should include all the previous updates
             #Make a copy for output purposes
@@ -342,15 +414,15 @@ def computeSubsetStateValues(turnsUsedTuples, knownValues, workerId=None, sm=Non
                 sm.categorizeCatalog(knownValues)
                 return None
             else:
-                logger.debug("Finished computeSubsetStateValues; compiling copy of results")
+                glogger.debug("Finished computeSubsetStateValues; compiling copy of results")
                 result = [{} for _ in range(len(knownValues))]
                 for i in range(len(knownValues)):
                     for k, v in knownValues[i].items():
                         result[i][k] = v
-                logger.debug("Finished compiling result; returning")
+                glogger.debug("Finished compiling result; returning")
                 return result
         except Exception as e:
-            logger.debug(f"Error: {e}")
+            glogger.debug(f"Error: {e}")
             raise
 
 def computeSubsetStateValuesWrapper(args):
@@ -361,37 +433,21 @@ def computeSubsetStateValuesWrapper(args):
         logger.debug(f"Error in compute SubsetStateValuesWrapper: {e}")
         raise
 
-
-#computeOneRowOneRoll()
-
-#Serialization of rolled_outcomes
-# Serialization with custom encoding
-with open('data.msgpack', 'wb') as file:
-    for item in roll_outcomes:
-        file.write(msgpack.packb(item))
-        
-# Deserialization with custom decoding
-with open('data.msgpack', 'rb') as file:
-    loaded_data = [item for item in msgpack.Unpacker(file, strict_map_key=False, use_list=False)]
-    # packed_data = file.read()
-    # loaded_data = msgpack.unpackb(packed_data, object_hook=decode_dict, raw=False, strict_map_key=False, use_list=False)
-
-
-def writeStateValues(state_values, filepath):
-    with open(filepath, 'wb') as file:
-        for k, v in state_values.items():
-            file.write(msgpack.packb((k.dice,k.remaining_rows,k.rolls_left,v)))
+# def writeStateValues(state_values, filepath):
+#     with open(filepath, 'wb') as file:
+#         for k, v in state_values.items():
+#             file.write(msgpack.packb((k.dice,k.remaining_rows,k.rolls_left,v)))
 
 
 
-def readStateValues(filepath):
-    reloaded_states = {}        
-    with open(filepath, 'rb') as file:
-    #reloaded_states = { State(item[0], item[1], item[2]) : item[3] for item in msgpack.Unpacker(file, strict_map_key=False, use_list=False) }
-        for item in msgpack.Unpacker(file, strict_map_key=False, use_list=False):
-            s = yahtzee_state.State(item[0],item[1],item[2])
-            reloaded_states[s] = item[3]
-    return reloaded_states
+# def readStateValues(filepath):
+#     reloaded_states = {}        
+#     with open(filepath, 'rb') as file:
+#     #reloaded_states = { State(item[0], item[1], item[2]) : item[3] for item in msgpack.Unpacker(file, strict_map_key=False, use_list=False) }
+#         for item in msgpack.Unpacker(file, strict_map_key=False, use_list=False):
+#             s = yahtzee_state.State(item[0],item[1],item[2])
+#             reloaded_states[s] = item[3]
+#     return reloaded_states
 
 
 
@@ -431,13 +487,14 @@ if __name__ == '__main__':
     purge("output")
     purge("parts")
     purge("partst")
-    purge("parallelpickled")
+    purge("logs")
+    #purge("parallelpickled")
     sm = StateManager()
     profiler = cProfile.Profile()
     profiler.enable()
     #computeAllStateValues(sm)
     #parallelizeComputeStateValues(sm,8)
-    parallelizeComputeMultiprocessing(sm,4)
+    parallelizeComputeMultiprocessing(sm,7)
     #sm.writeAll("pickle","parallelpickled/states")
     profiler.disable()
     stats = pstats.Stats(profiler).sort_stats('ncalls')
